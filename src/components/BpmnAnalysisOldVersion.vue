@@ -29,7 +29,7 @@ const consideredPaths = computed(() => {
   }
   return [];
 });
-let verbose = [false, true];
+let verbose = true;
 
 onMounted(() => {
   // Erstelle Viewer-Instanz mit id=diagramm
@@ -71,14 +71,12 @@ const loadDiagramm = async (event: Event) => {
 
       const { allPaths, pgSplits } = findPaths(startElement, elementRegistry);
       paths.value.allPaths = allPaths;
-      const mapping = mergeParallelPaths(allPaths, pgSplits, verbose);
-      paths.value.mergedPaths = createMergedPaths(mapping, allPaths);
+      paths.value.mergedPaths = mergeParallelPaths(allPaths, pgSplits, verbose);
       console.log("Alle Parallel Gateways:", pgSplits);
       console.log(
         "Alle einzelnen Pfade:",
         nicePathList(paths.value.allPaths, elementRegistry)
       );
-      console.log(allPaths);
       console.log(
         "Alle zusammengeführten Pfade:",
         nicePathList(paths.value.mergedPaths, elementRegistry)
@@ -156,6 +154,21 @@ const findPaths = function (
   return { allPaths, pgSplits };
 };
 
+// Wird nicht benutzt
+const findSyncStart = function (a: string[], b: string[]): number | null {
+  const minLength = Math.min(a.length, b.length);
+  for (let i = 0; i < minLength; i++) {
+    if (
+      a
+        .slice(a.length - minLength + i)
+        .every((val, j) => val === b.slice(b.length - minLength + i)[j])
+    ) {
+      return minLength - i;
+    }
+  }
+  return null;
+};
+
 /**
  * Prüft ob zwei Listen bis zu einem Index identisch sind und ein Index danach unterschiedlich sind.
  * Es kann auch geprüft werden, ob sie am Index danach auch unterschiedlich zu anderen Werten sind.
@@ -222,14 +235,84 @@ const findSameEndingIndex = function (
 //   )
 // );
 
-const mergePaths = function (
-  allPaths: string[][],
-  gateway: { id: string; outgoings: number }[],
-  verbose: boolean[] = [false, false]
-): number[][] {
-  const n = allPaths.length;
-  let mapping = Array.from({ length: n }, (_, i) => [i]);
-  return mapping;
+/**
+ * Versucht, einen Pfad i, der durch ein PG zum Zeitpunkt pgIndex geht, mit numOutgoings vielen Pfaden j>i zu mergen.
+ * Dabei wird eine neue Kombination gesucht, welche noch nicht in pathCombinationsUsed gespeichert ist.
+ * Bei Erfolg wird Pfad und aktualisierter pathCombinationsUsed ausgegeben, ansonsten null.
+ * @param path
+ * @param i
+ * @param resultPaths
+ * @param pgIndex
+ * @param numOutgoings
+ * @param outgoingsUsed
+ * @param pathsUsed
+ * @param pathCombinationsUsed
+ * @param verbose bei true werden die wichtigen Schritte in der Konsole ausgegeben.
+ */
+const mergeNewPathDemo = function (
+  path: string[],
+  i: number,
+  resultPaths: string[][],
+  pgIndex: number,
+  numOutgoings: number,
+  outgoingsUsed: string[],
+  pathsUsed: number[],
+  pathCombinationsUsed: number[][],
+  verbose: boolean = false
+): { path: string[]; pathCombinationsUsed: number[][] } | null {
+  // Iteriere über alle Pfad j>i, die nach dem letzten gemergten Pfad kommen.
+  // Dabei soll keine Kombination entstehen, welche schon gemergt wurde
+  for (let j = i + 1; j < resultPaths.length; j++) {
+    const candidate = [...pathsUsed, j];
+    if (
+      (pathsUsed.length === 0 || j > pathsUsed[pathsUsed.length - 1]) &&
+      !pathCombinationsUsed.some(
+        (b) => JSON.stringify(b) === JSON.stringify(candidate)
+      )
+    ) {
+      if (verbose) console.log("Untersuche Pfad", j);
+      const mergingPath = resultPaths[j];
+      // Prüfe ob j mit aktuellem Pfad gemergt werden kann
+      if (sameStartThenDifferent(path, mergingPath, pgIndex, outgoingsUsed)) {
+        const EndIndex = findSameEndingIndex(path, mergingPath, pgIndex + 1);
+        if (EndIndex) {
+          if (verbose) console.log("Pfade werden gemergt!");
+          const newPath = [
+            ...path.slice(0, EndIndex),
+            ...mergingPath.slice(pgIndex + 1),
+          ];
+          // Speichere die benutzten Outgoings und die Pfadkombination
+          const newOutgoingsUsed = [...outgoingsUsed, mergingPath[pgIndex + 1]];
+          const newPathsUsed = [...pathsUsed, j];
+          // Prüfe, ob genug Pfade zusammengefasst wurden.
+          if (newPathsUsed.length + 1 === numOutgoings) {
+            if (verbose) console.log("Genug Pfade wurden zusammengefasst.");
+            pathCombinationsUsed.push(newPathsUsed);
+            return { path: newPath, pathCombinationsUsed };
+          } else {
+            // Es wird der nächste Pfad gesucht, der dazu gemergt werden kann.
+            const result = mergeNewPathDemo(
+              newPath,
+              i,
+              resultPaths,
+              pgIndex,
+              numOutgoings,
+              newOutgoingsUsed,
+              newPathsUsed,
+              pathCombinationsUsed,
+              verbose
+            );
+            // Wenn das aktuelle Mergen zum Ziel führt, wird der zusammengefasste Pfad, mit seiner Kombination ausgegeben.
+            // Ansonsten iteriert der Algorithmus weiter über j und versucht andere Kombinationen zu finden.
+            if (result) return result;
+          }
+        }
+      }
+    }
+  }
+  if (verbose)
+    console.log("Es wurde keine hinreichende Pfadkombination gefunden.");
+  return null;
 };
 
 /**
@@ -244,24 +327,24 @@ const mergePaths = function (
 const mergeParallelPaths = function (
   allPaths: string[][],
   pgSplits: { id: string; outgoings: number }[],
-  verbose: boolean[] = [false, false]
-): number[][] {
-  const n = allPaths.length;
-  let mapping = Array.from({ length: n }, (_, i) => [i]);
+  verbose: boolean = false
+): string[][] {
+  let previousPaths = [...allPaths];
 
   for (const pg of pgSplits) {
-    if (verbose[0]) console.log("Betrachte PG:", pg);
-    const pathCombinations: number[][] = [];
+    if (verbose) console.log("Betrachte PG:", pg);
+    const finalPaths: string[][] = [];
     const numOutgoings = pg.outgoings;
-    const pathProcessed: boolean[] = Array(n).fill(false);
+    const pathProcessed: boolean[] = Array(previousPaths.length).fill(false);
 
-    for (let i = 0; i < n; i++) {
-      const path = allPaths[i];
-      if (verbose[0]) console.log("Betrachte Pfad", i + 1);
+    for (let i = 0; i < previousPaths.length; i++) {
+      const pathCombinationsUsed: number[][] = [];
+      const path = previousPaths[i];
+      if (verbose) console.log("Betrachte Pfad", i + 1);
       if (!path.includes(pg.id)) {
-        pathCombinations.push([i]);
+        finalPaths.push(path);
         pathProcessed[i] = true;
-        if (verbose[0]) console.log("Pfad nicht angerührt:", i + 1);
+        if (verbose) console.log("Pfad nicht angerührt:", i + 1);
       } else {
         const pgIndex = path.indexOf(pg.id);
 
@@ -270,28 +353,27 @@ const mergeParallelPaths = function (
          * mit numOutgoings vielen Pfaden j>i zu mergen.
          * Dabei wird eine neue Kombination gesucht, welche noch nicht in pathCombinationsUsed gespeichert ist.
          * Ausgegeben wird der Pfad. pathCombinationsUsed und pathProceeded werden dabei aktualisiert.
+         * @param path
          * @param outgoingsUsed
          * @param pathsUsed
          */
         const mergeNewPath: (
-          pathsUsed?: number[],
-          outgoingsUsed?: string[]
-        ) => number[] | null = (
-          pathsUsed = [i],
-          outgoingsUsed = [path[pgIndex]]
-        ) => {
+          path: string[],
+          outgoingsUsed?: string[],
+          pathsUsed?: number[]
+        ) => string[] | null = (path, outgoingsUsed = [], pathsUsed = []) => {
           // Iteriere über alle Pfad j>i, die nach dem letzten gemergten Pfad kommen.
           // Dabei soll keine Kombination entstehen, welche schon gemergt wurde
-          for (let j = i + 1; j < n; j++) {
+          for (let j = i + 1; j < previousPaths.length; j++) {
             const candidate = [...pathsUsed, j];
             if (
-              j > pathsUsed[pathsUsed.length - 1] &&
-              !pathCombinations.some(
+              (pathsUsed.length === 0 || j > pathsUsed[pathsUsed.length - 1]) &&
+              !pathCombinationsUsed.some(
                 (b) => JSON.stringify(b) === JSON.stringify(candidate)
               )
             ) {
-              if (verbose[0]) console.log("Kandidat:", j + 1);
-              const mergingPath = allPaths[j];
+              if (verbose) console.log("Kandidat:", j + 1);
+              const mergingPath = previousPaths[j];
               // Prüfe ob j mit aktuellem Pfad gemergt werden kann
               if (
                 sameStartThenDifferent(
@@ -307,7 +389,15 @@ const mergeParallelPaths = function (
                   pgIndex + 1
                 );
                 if (endIndex) {
-                  if (verbose[0]) console.log("Gemerget mit", j + 1);
+                  if (verbose) console.log("Gemerget mit", j + 1);
+                  let mergedPath: string[];
+                  if (endIndex == -1) {
+                    mergedPath = [...path, ...mergingPath.slice(pgIndex + 1)];
+                  } else
+                    mergedPath = [
+                      ...path.slice(0, endIndex),
+                      ...mergingPath.slice(pgIndex + 1),
+                    ];
                   // Speichere die benutzten Outgoings und die Pfadkombination
                   const updatedOutgoingsUsed = [
                     ...outgoingsUsed,
@@ -315,21 +405,26 @@ const mergeParallelPaths = function (
                   ];
                   const updatedPathsUsed = [...pathsUsed, j];
                   // Prüfe, ob genug Pfade zusammengefasst wurden.
-                  if (updatedPathsUsed.length === numOutgoings) {
-                    if (verbose[0]) {
+                  if (updatedPathsUsed.length + 1 === numOutgoings) {
+                    if (verbose) {
+                      console.log("Genug Pfade wurden zusammengefasst.");
                       console.log(
-                        "Genug Pfade zusammengeführt:",
+                        "Pfade zusammengefügt:",
                         updatedPathsUsed.map((n) => n + 1)
                       );
                     }
-                    pathCombinations.push(updatedPathsUsed);
-                    for (const k of updatedPathsUsed) pathProcessed[k] = true;
-                    return updatedPathsUsed;
+                    pathCombinationsUsed.push(updatedPathsUsed);
+                    pathProcessed[i] = true;
+                    pathProcessed.map((val, k) =>
+                      updatedPathsUsed.includes(k) ? true : val
+                    );
+                    return mergedPath;
                   } else {
                     // Es wird der nächste Pfad gesucht, der dazu gemergt werden kann.
                     const result = mergeNewPath(
-                      updatedPathsUsed,
-                      updatedOutgoingsUsed
+                      mergedPath,
+                      updatedOutgoingsUsed,
+                      updatedPathsUsed
                     );
                     // Wenn das aktuelle Mergen zum Ziel führt, wird der zusammengefasste Pfad, mit seiner Kombination ausgegeben.
                     // Ansonsten iteriert der Algorithmus weiter über j und versucht andere Kombinationen zu finden.
@@ -339,7 +434,7 @@ const mergeParallelPaths = function (
               }
             }
           }
-          if (verbose[0])
+          if (verbose)
             console.log(
               "Es wurde keine hinreichende Pfadkombination gefunden."
             );
@@ -349,19 +444,18 @@ const mergeParallelPaths = function (
         let hope = true;
         while (hope === true) {
           hope = false;
-          if (verbose[0]) console.log("Funktion mergeNewPath wird verwendet.");
-          const merged = mergeNewPath();
+          if (verbose) console.log("Funktion mergeNewPath wird verwendet.");
+          const merged = mergeNewPath(path);
           if (merged) {
+            finalPaths.push(merged);
             hope = true;
+            if (verbose) console.log("Pfade zusammengeführt zu:", path);
           }
         }
       }
     }
-    if (verbose[1]) {
-      console.log(`Zusammengefasste Pfade für Parallel ${pg.id}:`);
-      console.log(pathCombinations.map((arr) => arr.map((n) => n + 1)));
-    }
-    mapping = mergeMatchingLists([...mapping], pathCombinations);
+    previousPaths = finalPaths;
+    if (verbose) console.log("Aktualisierte Pfade:", previousPaths);
     if (pathProcessed.includes(false)) {
       for (let i = 0; i < pathProcessed.length; i++) {
         if (pathProcessed[i] == false)
@@ -369,157 +463,141 @@ const mergeParallelPaths = function (
       }
     }
   }
-  if (mapping.length === 0) {
+  if (previousPaths.length === 0) {
     console.error(
       "Die Funktion mergeParallelPaths hat einen leeren Output ergeben."
     );
     alert("Beim Zusammenführen der Pfade ist ein Fehler aufgetreten.");
   }
-  const simplifiedMapping = simplifyMapping(mapping, allPaths);
-  if (verbose[1]) {
-    console.log(
-      "Zunächst ausgegebene Pfade:",
-      mapping.map((arr) => arr.map((n) => n + 1))
-    );
-    console.log(
-      "Ausgegebene Pfade:",
-      simplifiedMapping.map((arr) => arr.map((n) => n + 1))
-    );
-  }
-  return simplifiedMapping;
+  return previousPaths;
 };
 
-function mergeMatchingLists(first: number[][], second: number[][]): number[][] {
-  const result: number[][] = [];
-  for (const a of first) {
-    for (const b of second) {
-      const merged = new Set(a);
-      if (b.some((x) => a.includes(x))) {
-        b.forEach((x) => merged.add(x));
-      }
-      result.push(Array.from(merged).sort((x, y) => x - y));
+const mergeParallelPaths3Outgoings = function (
+  allPaths: string[][],
+  pgSplits: { id: string; outgoings: number }[]
+): string[][] | null {
+  for (const pg of pgSplits) {
+    if (pg.outgoings != 3) {
+      console.error(
+        "Merging algorithm works only for diagramms with gateways-outgoings exactly 3."
+      );
+      alert("Only exactly 3 outgoings per parallel gateway allowed!");
+      return null;
     }
   }
-  let filtered: number[][] = result.filter(
-    (a, i) =>
-      !result.some(
-        (b, j) =>
-          i !== j && a.length < b.length && a.every((x) => b.includes(x))
-      )
-  );
 
-  filtered = filtered.filter((arr, index, self) => {
-    const key = JSON.stringify(arr);
-    return index === self.findIndex((a) => JSON.stringify(a) === key);
-  });
+  let resultPaths = [...allPaths];
 
-  return filtered;
-}
-
-// if (false) {
-//   console.log(
-//     mergeMatchingLists(
-//       [[1], [2], [3], [4, 5, 6]],
-//       [
-//         [1, 2, 3],
-//         [1, 2, 4],
-//         [1, 2, 5],
-//         [1, 2, 6],
-//       ]
-//     )
-//   );
-// }
-
-const simplifyMapping = function (
-  mapping: number[][],
-  allPaths: string[][]
-): number[][] {
-  let changed = true;
-  let simplifiedMapping = mapping.map((a) => [...a]);
-
-  while (changed) {
-    changed = false;
-    const next: number[][] = [];
-    const added = Array(simplifiedMapping.length).fill(false);
-
-    for (let i = 0; i < simplifiedMapping.length; i++) {
-      if (added[i]) continue;
-      const a = new Set(
-        simplifiedMapping[i].flatMap((index) => allPaths[index])
-      );
-      for (let j = i + 1; j < simplifiedMapping.length; j++) {
-        if (added[j]) continue;
-        const b = new Set(
-          simplifiedMapping[j].flatMap((index) => allPaths[index])
-        );
-        const aContainsB = [...b].every((el) => a.has(el));
-        const bContainsA = [...a].every((el) => b.has(el));
-        if (aContainsB && bContainsA) {
-          const merged = Array.from(
-            new Set([...simplifiedMapping[i], ...simplifiedMapping[j]])
-          ).sort((x, y) => x - y);
-          next.push(merged);
-          added[i] = true;
-          added[j] = true;
-          changed = true;
-          break;
+  for (const pg of pgSplits) {
+    const newResultPaths: string[][] = [];
+    for (let i = 0; i < resultPaths.length; i++) {
+      const indexUsed: number[] = [];
+      let path = resultPaths[i];
+      if (!path.includes(pg.id)) {
+        newResultPaths.push(path);
+      } else {
+        const pgIndex = path.indexOf(pg.id);
+        let hope = true;
+        let mergeFound = false;
+        while (hope === true) {
+          hope = false;
+          for (let j = i + 1; j < resultPaths.length; j++) {
+            const mergingPath1 = resultPaths[j];
+            if (sameStartThenDifferent(path, mergingPath1, pgIndex)) {
+              const EndIndex1 = findSameEndingIndex(
+                path,
+                mergingPath1,
+                pgIndex + 1
+              );
+              if (EndIndex1) {
+                path = [
+                  ...path.slice(0, EndIndex1),
+                  ...mergingPath1.slice(pgIndex + 1),
+                ];
+                for (let k = j + 1; k < resultPaths.length; k++) {
+                  if (!indexUsed.includes(j) || !indexUsed.includes(k)) {
+                    const mergingPath2 = resultPaths[k];
+                    if (
+                      sameStartThenDifferent(path, mergingPath2, pgIndex, [
+                        mergingPath1[pgIndex + 1],
+                      ])
+                    ) {
+                      const EndIndex2 = findSameEndingIndex(
+                        path,
+                        mergingPath2,
+                        pgIndex + 1
+                      );
+                      if (EndIndex2) {
+                        const mergedPath = [
+                          ...path.slice(0, EndIndex2),
+                          ...mergingPath2.slice(pgIndex + 1),
+                        ];
+                        newResultPaths.push(mergedPath);
+                        hope = true;
+                        mergeFound = true;
+                        indexUsed.push(j, k);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
-      if (!added[i]) {
-        next.push(simplifiedMapping[i]);
+    }
+    resultPaths = newResultPaths;
+  }
+  return resultPaths;
+};
+
+const mergeParallelPaths2Outgoings = function (
+  allPaths: string[][],
+  pgSplits: { id: string; outgoings: number }[]
+): string[][] | undefined {
+  for (const pg of pgSplits) {
+    if (pg.outgoings > 2) {
+      console.error(
+        "Merging algorithm works only for diagramms with gateways-outgoings less than 3."
+      );
+      alert("Only 2 or less outgoings per parallel gateway allowed!");
+      return null;
+    }
+  }
+
+  let resultPaths = [...allPaths];
+
+  for (const pg of pgSplits) {
+    const newResultPaths: string[][] = [];
+
+    for (let i = 0; i < resultPaths.length; i++) {
+      const path = resultPaths[i];
+      if (!path.includes(pg.id)) {
+        newResultPaths.push(path);
+      } else {
+        const pgIndex = path.indexOf(pg.id);
+        for (let j = i + 1; j < resultPaths.length; j++) {
+          const mergingPath = resultPaths[j];
+          if (sameStartThenDifferent(path, mergingPath, pgIndex)) {
+            const EndIndex = findSameEndingIndex(
+              path,
+              mergingPath,
+              pgIndex + 1
+            );
+            if (EndIndex) {
+              const mergedPath = [
+                ...path.slice(0, EndIndex),
+                ...mergingPath.slice(pgIndex),
+              ];
+              newResultPaths.push(mergedPath);
+            }
+          }
+        }
       }
     }
-    simplifiedMapping = next.map((a) => [...a]);
+    resultPaths = newResultPaths;
   }
-  return simplifiedMapping;
-};
-
-const createMergedPaths = function (
-  mapping: number[][],
-  allPaths: string[][]
-): string[][] {
-  const allMergedPaths: string[][] = [];
-  for (const comb of mapping) {
-    const mergedPath: string[] = [];
-    for (const i of comb) {
-      mergedPath.push(...allPaths[i]);
-    }
-    allMergedPaths.push(mergedPath);
-  }
-  return allMergedPaths;
-};
-
-const nicePath = function (
-  path: string[],
-  elementRegistry: ElementRegistry
-): string[] {
-  const nice: string[] = [];
-  for (const id of path) {
-    const element = elementRegistry.get(id) as Element;
-    if (element.type === "bpmn:Task") {
-      nice.push(element.businessObject.name);
-    } else if (element.type === "bpmn:ParallelGateway") {
-      nice.push("Parallel Gateway");
-    } else if (element.type === "bpmn:ExclusiveGateway") {
-      nice.push("Exclusive Gateway");
-    } else if (element.type === "bpmn:EndEvent") {
-      nice.push("End");
-    } else if (element.type === "bpmn:StartEvent") {
-      nice.push("Start");
-    } else nice.push(id);
-  }
-  return nice;
-};
-
-const nicePathList = function (
-  pathList: string[][],
-  elementRegistry: ElementRegistry
-): string[][] {
-  const niceList: string[][] = [];
-  for (const path of pathList) {
-    niceList.push(nicePath(path, elementRegistry));
-  }
-  return niceList;
+  return resultPaths;
 };
 
 const highlightPath = function () {
@@ -588,6 +666,39 @@ const toggleProgram = () => {
     highlightPath();
   }
 };
+
+const nicePath = function (
+  path: string[],
+  elementRegistry: ElementRegistry
+): string[] {
+  const nice: string[] = [];
+  for (const id of path) {
+    const element = elementRegistry.get(id) as Element;
+    if (element.type === "bpmn:Task") {
+      nice.push(element.businessObject.name);
+    } else if (element.type === "bpmn:ParallelGateway") {
+      nice.push("Parallel Gateway");
+    } else if (element.type === "bpmn:ExclusiveGateway") {
+      nice.push("Exclusive Gateway");
+    } else if (element.type === "bpmn:EndEvent") {
+      nice.push("End");
+    } else if (element.type === "bpmn:StartEvent") {
+      nice.push("Start");
+    } else nice.push(id);
+  }
+  return nice;
+};
+
+const nicePathList = function (
+  pathList: string[][],
+  elementRegistry: ElementRegistry
+): string[][] {
+  const niceList: string[][] = [];
+  for (const path of pathList) {
+    niceList.push(nicePath(path, elementRegistry));
+  }
+  return niceList;
+};
 </script>
 
 <template>
@@ -625,6 +736,11 @@ const toggleProgram = () => {
 
 <!-- npx tsc --noEmit -->
 
+<!-- typescript soll keinen fehler geben wenn variable nicht benutzt wird -->
 <!-- error handling verbessern -->
-
-<!-- Parallel und Exklusiv GW 3  -->
+<!-- Example 3 macht Probleme: Die Pfadspeicherung von gemergten Phasen führt dazu, dass entsprechende
+ Pfade beim zweiten Gateway nicht gemert werden.
+ example 3 ist eh irrelevant!
+ Dass sich parallele Pfade crashen, macht keinen Sinn.-->
+<!-- Falsches Diagramm: Funktioniert auch nicht, weil zwei Ende und Pfadspeicherung dadurch schwierig. -->
+<!-- Lösung: Parallele Pfade müssen erkennbar gespeichert werden!!! -->
