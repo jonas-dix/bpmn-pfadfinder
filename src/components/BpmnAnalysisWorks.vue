@@ -42,7 +42,7 @@ const consideredPaths = computed(() => {
   }
   return [];
 });
-let verbose = [true, true];
+let verbose = [false, false];
 
 onMounted(() => {
   // Erstelle Viewer-Instanz mit id=diagramm
@@ -287,8 +287,8 @@ const findSameEndingIndex = function (
 /**
  * Führt entsprechende Pfade an einem Gateway (parallel oder exclusive) zusammen.
  * Gateway.outgoing viele Pfade werden zusammengefügt.
- * Pfade werden gemergt, wenn sie das Gateway durchlaufen, dieselbe Vorgeschichte haben und, wenn sie an einem späteren Zeitpunkt sich überschneiden, auch
- * zusammen bleiben, bzw., wenn sie vollkommen getrennt bleiben.
+ * Pfade werden gemergt, wenn sie das Gateway durchlaufen, dieselbe Vorgeschichte haben und, wenn sie an einem späteren Zeitpunkt sich überschneiden, zusammen bleiben,
+ * bzw., wenn sie vollkommen getrennt bleiben.
  * In letzterem Fall wird der Pfad, der getrennt bleibt, also nicht mehr durch das Join Gateway läuft, als DeadlockPath aufgefasst.
  * Das bedeutet, dass die Pfade alle nur bis zum Deadlockelement laufen.
  * @param allPaths
@@ -345,8 +345,7 @@ const mergeGatewayPaths = function (
       if (numOutgoings == 1) {
         pathCombinations.push([i]);
         pathProcessed[i] = true;
-        if (verbose[0])
-          console.log(`Pfad ${i + 1} wird als einzelner Merge hinzugefügt.`);
+        if (verbose[0]) console.log(`Pfad ${i + 1} hinzugefügt.`);
         continue;
       }
       const gatewayIndex = path.indexOf(gateway.id);
@@ -354,8 +353,8 @@ const mergeGatewayPaths = function (
       /**
        * Versucht, Pfad i, der durch gateway zum Zeitpunkt gatewayIndex geht,
        * mit numOutgoings vielen Pfaden j>i zu mergen.
-       * Dabei werden alle Pfadkombinationen betrachtet und diejenigen als Liste von Indizes zu pathcombinations hinzugefügt, die die Merging-Bedingungen erfüllen.
-       * pathProcessed und deadlockPaths werden dabei aktualisiert.
+       * Dabei wird eine neue Kombination gesucht, welche noch nicht in pathCombinationsUsed gespeichert ist.
+       * Ausgegeben wird der Pfad. pathCombinationsUsed, pathProcessed, deadlockPaths werden dabei aktualisiert.
        * @param outgoingsUsed
        * @param pathsUsed
        */
@@ -367,9 +366,15 @@ const mergeGatewayPaths = function (
         outgoingsUsed = [path[gatewayIndex]]
       ) => {
         // Iteriere über alle Pfad j>i, die nach dem letzten gemergten Pfad kommen.
+        // Dabei soll keine Kombination entstehen, welche schon gemergt wurde.
         for (let j = i + 1; j < n; j++) {
           const updatedPathsUsed = [...pathsUsed, j];
-          if (j > pathsUsed[pathsUsed.length - 1]) {
+          if (
+            j > pathsUsed[pathsUsed.length - 1] &&
+            !pathCombinations.some(
+              (b) => JSON.stringify(b) === JSON.stringify(updatedPathsUsed)
+            )
+          ) {
             if (verbose[0])
               console.log(`Überprüfe ob Pfad ${j + 1} gemergt werden kann.`);
             const mergingPath = allPaths[j];
@@ -379,57 +384,71 @@ const mergeGatewayPaths = function (
                 mergingPath,
                 gatewayIndex,
                 outgoingsUsed
-              ) &&
-              findSameEndingIndex(path, mergingPath, gatewayIndex + 1)
+              )
             ) {
-              if (!gateway.counterpart) return null;
-              if (
-                !deadlockPaths.some((dp) => dp.pathIndex === j) &&
-                !mergingPath.includes(gateway.counterpart)
-              ) {
-                if (verbose[1]) console.log("Deadlock Pfad gefunden!");
-                const deadlockPath = {
-                  pathIndex: j,
-                  breakup: gateway.counterpart,
-                };
-                deadlockPaths.push(deadlockPath);
-              }
-              if (verbose[0]) console.log("Merging erfolgreich.");
-              // Prüfe, ob genug Pfade zusammengefasst wurden.
-              if (updatedPathsUsed.length === numOutgoings) {
-                if (verbose[0]) {
-                  console.log(
-                    "Genug Pfade für dieses Gateway zusammengeführt:",
-                    updatedPathsUsed.map((n) => n + 1)
-                  );
+              if (findSameEndingIndex(path, mergingPath, gatewayIndex + 1)) {
+                if (!gateway.counterpart) return null;
+                if (
+                  !deadlockPaths.some((dp) => dp.pathIndex === j) &&
+                  !mergingPath.includes(gateway.counterpart)
+                ) {
+                  const deadlockPath = {
+                    pathIndex: j,
+                    breakup: gateway.counterpart,
+                  };
+                  deadlockPaths.push(deadlockPath);
                 }
-                pathCombinations.push(updatedPathsUsed);
-                for (const k of updatedPathsUsed) pathProcessed[k] = true;
-              } else {
-                // Speichere die benutzten Outgoings für das nächste Mergen
+                if (verbose[0]) console.log("Merging erfolgreich.");
+                // Speichere die benutzten Outgoings
                 const updatedOutgoingsUsed = [
                   ...outgoingsUsed,
                   mergingPath[gatewayIndex + 1],
                 ];
-                // Es wird der nächste Pfad gesucht, der dazu gemergt werden kann.
-                mergeNewPath(updatedPathsUsed, updatedOutgoingsUsed);
+                // Prüfe, ob genug Pfade zusammengefasst wurden.
+                if (updatedPathsUsed.length === numOutgoings) {
+                  if (verbose[0]) {
+                    console.log(
+                      "Genug Pfade für dieses Gateway zusammengeführt:",
+                      updatedPathsUsed.map((n) => n + 1)
+                    );
+                  }
+                  pathCombinations.push(updatedPathsUsed);
+                  for (const k of updatedPathsUsed) pathProcessed[k] = true;
+                  return updatedPathsUsed;
+                } else {
+                  // Es wird der nächste Pfad gesucht, der dazu gemergt werden kann.
+                  const result = mergeNewPath(
+                    updatedPathsUsed,
+                    updatedOutgoingsUsed
+                  );
+                  // Wenn das aktuelle Mergen zum Ziel führt, wird der zusammengefasste Pfad, mit seiner Kombination ausgegeben.
+                  // Ansonsten iteriert der Algorithmus weiter über j und versucht andere Kombinationen zu finden.
+                  if (result) return result;
+                }
               }
             }
           }
         }
+        if (verbose[0])
+          console.log("Es wurde keine hinreichende Pfadkombination gefunden.");
+        return null;
       };
 
-      if (verbose[0]) console.log("Funktion mergeNewPath wird gestartet.");
-      mergeNewPath();
-      if (verbose[0]) console.log("Funktion mergeNewPath wurde beendet.");
+      let hope = true;
+      while (hope === true) {
+        hope = false;
+        if (verbose[0]) console.log("Funktion mergeNewPath wird gestartet.");
+        const merged = mergeNewPath();
+        if (merged) {
+          hope = true;
+        }
+      }
     }
   }
   if (pathProcessed.includes(false)) {
     for (let i = 0; i < pathProcessed.length; i++) {
-      if (pathProcessed[i] == false) {
+      if (pathProcessed[i] == false)
         console.error(`Der Pfad ${i + 1} ist verloren gegangen!`);
-        alert("Ein Fehler ist aufgetreten.");
-      }
     }
   }
   return [pathCombinations, deadlockPaths];
@@ -468,7 +487,7 @@ const mergeAllPaths = function (
         gatewayMapping.map((arr) => arr.map((n) => n + 1))
       );
       console.log(
-        "Resultierende Pfade mit vorherigen Gateways:",
+        "Resultierende Pfade:",
         directMapping.map((arr) => arr.map((n) => n + 1))
       );
       console.log(
