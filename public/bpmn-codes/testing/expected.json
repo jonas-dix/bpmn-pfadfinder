@@ -1,0 +1,77 @@
+[
+  {
+    "file": "2exclusive-2parallel.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "2exclusive-2exclusiveNested.bpmn",
+    "numberRawPaths": 3,
+    "numberMergedPaths": 3
+  },
+  {
+    "file": "2parallel-2parallel.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 1
+  },
+  {
+    "file": "2parallel-2parallelNested-2parallelNested.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 1
+  },
+  {
+    "file": "3parallel-3parallel.bpmn",
+    "numberRawPaths": 9,
+    "numberMergedPaths": 1
+  },
+  {
+    "file": "3parallel-2exclusiveNested-3parallelNested.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "2exclusive-2parallelNested-2exclusiveNested.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 3
+  },
+  {
+    "file": "2exclusive-2parallelNested-3exclusive.bpmn",
+    "numberRawPaths": 9,
+    "numberMergedPaths": 6
+  },
+  {
+    "file": "2exclusive-2parallelNested-3parallel.bpmn",
+    "numberRawPaths": 9,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "2parallel-1exclusive-simplified.bpmn",
+    "numberRawPaths": 3,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "2parallel-2parallel-2exclusive.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "2parallel-exclusive-stop.bpmn",
+    "numberRawPaths": 3,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "3parallel-exclusive-2parallel-stop.bpmn",
+    "numberRawPaths": 7,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "2inclusive-2parallelNested-3inclusive.bpmn",
+    "numberRawPaths": 9,
+    "numberMergedPaths": 21
+  },
+  {
+    "file": "2parallel-exclusive-2parallelend.bpmn",
+    "numberRawPaths": 5,
+    "numberMergedPaths": 2
+  }
+]

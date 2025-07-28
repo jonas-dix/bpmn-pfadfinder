@@ -1,0 +1,17 @@
+[
+  {
+    "file": "4parallel-manyexclusive-2parallel.bpmn",
+    "numberRawPaths": 8,
+    "numberMergedPaths": 8
+  },
+  {
+    "file": "3parallel-manyexclusive-2parallel.bpmn",
+    "numberRawPaths": 7,
+    "numberMergedPaths": 8
+  },
+  {
+    "file": "3parallel-manyexclusive-2inclusive.bpmn",
+    "numberRawPaths": 7,
+    "numberMergedPaths": 16
+  }
+]

@@ -5,7 +5,7 @@ import { onMounted, reactive } from "vue";
 import PulseLoader from "vue-spinner/src/PulseLoader.vue";
 import axios from "axios";
 import { computed, type ComputedRef } from "vue";
-import type { JobType } from "@/types/job";
+import type { JobType } from "@/types/bpmn";
 
 // const props = defineProps({
 //   limit: Number,

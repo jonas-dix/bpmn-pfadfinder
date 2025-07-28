@@ -41,9 +41,9 @@ const isActiveLink = (routePath: string): boolean => {
                 >Home</RouterLink
               >
               <RouterLink
-                to="/jobs"
+                to="/analysis"
                 :class="[
-                  isActiveLink('/jobs')
+                  isActiveLink('/analysis')
                     ? 'bg-green-900'
                     : 'hover:bg-gray-900 hover:text-white',
                   'text-white',
@@ -51,20 +51,7 @@ const isActiveLink = (routePath: string): boolean => {
                   'py-2',
                   'rounded-md',
                 ]"
-                >Jobs</RouterLink
-              >
-              <RouterLink
-                to="/jobs/add"
-                :class="[
-                  isActiveLink('/jobs/add')
-                    ? 'bg-green-900'
-                    : 'hover:bg-gray-900 hover:text-white',
-                  'text-white',
-                  'px-3',
-                  'py-2',
-                  'rounded-md',
-                ]"
-                >Add Job</RouterLink
+                >Analyse</RouterLink
               >
             </div>
           </div>

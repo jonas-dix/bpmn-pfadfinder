@@ -1,20 +1,7 @@
-// {
-//   "files": [],
-//   "references": [
-//     { "path": "./tsconfig.app.json" },
-//     { "path": "./tsconfig.node.json" }
-//   ],
-//   "compilerOptions": {
-//     "target": "es2024",
-//     "strict": true,
-//     "baseUrl": ".",
-//     "paths": {
-//       "@/*": ["src/*"]
-//     }
-//   }
-// }
 {
   "compilerOptions": {
+    "lib": ["DOM", "ESNext"],
+    "types": [],
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

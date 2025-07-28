@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from "vue-router";
 import { ref, computed, type ComputedRef } from "vue";
-import type { JobType } from "@/types/job";
+import type { JobType } from "@/types/bpmn";
 
 // const props = defineProps({
 //   job: Object,

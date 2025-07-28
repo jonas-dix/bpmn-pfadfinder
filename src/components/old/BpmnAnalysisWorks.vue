@@ -118,7 +118,7 @@ const loadDiagramm = async (event: Event) => {
       );
 
       canvas = viewer.get("canvas");
-      canvas.zoom("fit-viewport", "auto");
+      canvas.zoom("fit-viewport");
       selectedPathIndex.value = null;
     } catch (error) {
       console.error("Fehler beim Importieren der BPMN-Datei:", error);
