@@ -23,3 +23,11 @@ export type SimpleElementRegistry = {
   getAll(): SimpleElement[];
   get(id: string): SimpleElement | undefined;
 };
+
+export type Verbose = {
+  rawPaths?: boolean;
+  gateways?: boolean;
+  merging?: boolean;
+  mapping?: boolean;
+  overview?: boolean;
+};

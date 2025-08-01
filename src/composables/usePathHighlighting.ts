@@ -1,15 +1,16 @@
+import { nicePath } from "@/utils/formatting";
 import type { Ref } from "vue";
 import type ElementRegistry from "diagram-js/lib/core/ElementRegistry";
+import type { Gateway, Verbose } from "@/types/bpmn";
 import type Canvas from "diagram-js/lib/core/Canvas";
-import { nicePath } from "@/utils/formatting";
-import type { Gateway } from "@/types/bpmn";
 
 export function usePathHighlighting(
   canvas: Ref<Canvas | null>,
   elementRegistry: Ref<ElementRegistry | null>,
   gateways: Ref<Gateway[]>,
   consideredPaths: Ref<string[][]>,
-  selectedPathIndex: Ref<number | null>
+  selectedPathIndex: Ref<number | null>,
+  VERBOSE: Verbose = {}
 ) {
   /**
    * Der ausgewählte Pfad im Diagramm wird hervorgehoben.
@@ -21,8 +22,8 @@ export function usePathHighlighting(
     if (!canvas.value) {
       throw new Error("Canvas ist nicht initialisiert.");
     }
-    if (selectedPathIndex.value == null) {
-      throw new Error("SelectedPathIndex hat keinen Wert.");
+    if (selectedPathIndex.value === null) {
+      throw new Error("Kein Pfad ausgewählt.");
     }
 
     const path = consideredPaths.value[selectedPathIndex.value];
@@ -32,10 +33,13 @@ export function usePathHighlighting(
       canvas.value!.removeMarker(el.id, "highlight")
     );
 
-    console.log(
-      "Highlighted Path:",
-      nicePath(path, gateways.value, elementRegistry.value)
-    );
+    if (VERBOSE.overview) {
+      console.log(
+        "Highlighted Path:",
+        nicePath(path, gateways.value, elementRegistry.value)
+      );
+    }
+
     for (let i = 0; i < path.length; i++) {
       const elementId = path[i];
       const element = elementRegistry.value.get(elementId);

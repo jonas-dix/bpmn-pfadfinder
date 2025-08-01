@@ -1,117 +1,145 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
-import { useBpmnStore } from "@/stores/bpmn";
+// --------------- Imports ---------------
+import { computed, onMounted, ref, shallowRef } from "vue";
 
+// Stores, Types, Error
+import { useBpmnStore } from "@/stores/bpmn";
 import type { Element } from "diagram-js/lib/model";
 import type { Gateway } from "@/types/bpmn";
+import { UserInputError } from "@/utils/error";
 
-import { usePathNavigation } from "@/composables/usePathNavigation";
+// Composables für Viewer, Pfad-Markierung & Navigation
 import { useBpmnViewer } from "@/composables/useBpmnViewer";
 import { usePathHighlighting } from "@/composables/usePathHighlighting";
+import { usePathNavigation } from "@/composables/usePathNavigation";
 
-const bpmnStore = useBpmnStore();
-const router = useRouter();
+// Hilfsfunktionen zur Pfadanalyse & Formatierung
+import { findRawPaths, linkGateways, mergePaths } from "@/utils/pathAnalysis";
+import { createMergedPaths, nicePathList } from "@/utils/formatting";
 
-// --- Diagramm-Referenz ---
-const diagramContainer = ref<HTMLElement | null>(null);
-const selectedFileName = ref<string>();
+// --------------- Konfiguration ---------------
+const config = {
+  defaultProgram: "Merged paths" as "Raw paths" | "Merged paths",
+  verboseFlags: {
+    rawPaths: false,
+    gateways: false,
+    merging: false,
+    mapping: false,
+    overview: true,
+  },
+};
 
-// --- Pfadanalyse ---
+// --------------- Zustände für Diagramm, Analyse, UI, Store, Debug ---------------
+const diagramContainer = shallowRef<HTMLElement | null>(null);
+const selectedFileName = ref<string | null>(null);
+
 const gateways = ref<Gateway[]>([]);
 const rawPaths = ref<string[][]>([]);
 const mergedPaths = ref<string[][]>([]);
-const niceMergedPaths = ref<string[][]>([]);
 
-// --- UI-Zustand ---
-const program = ref<string>("Merged paths");
+const program = ref<"Raw paths" | "Merged paths">(config.defaultProgram);
 const consideredPaths = computed(() => {
   if (program.value === "Raw paths") {
     return rawPaths.value;
-  } else if (program.value === "Merged paths") {
+  } else {
     return mergedPaths.value;
   }
-  return [];
 });
 const selectedPathIndex = ref<number | null>(null);
 
-let verbose = [false, false];
+const bpmnStore = useBpmnStore();
 
+const VERBOSE = config.verboseFlags;
+
+// --------------- Initialisierung von Viewer, Highlighting & Navigation ---------------
 const { viewer, canvas, elementRegistry, initViewer } = useBpmnViewer();
-
 const { highlightPath } = usePathHighlighting(
   canvas,
   elementRegistry,
   gateways,
   consideredPaths,
-  selectedPathIndex
-);
-
-const { nextPath, previousPath, toggleProgram } = usePathNavigation(
-  program,
-  consideredPaths,
   selectedPathIndex,
-  highlightPath
+  VERBOSE
 );
-
-import { findRawPaths, linkGateways, mergePaths } from "@/utils/pathAnalysis";
-import { createMergedPaths, nicePathList } from "@/utils/formatting";
+const { nextPath, previousPath, toggleProgram, goToPathDiagram } =
+  usePathNavigation(program, consideredPaths, selectedPathIndex, highlightPath);
 
 onMounted(async () => {
-  if (!diagramContainer.value) return;
+  if (!diagramContainer.value) {
+    console.error("DiagramContainer existiert nicht.");
+    alert("Fehler beim Bereitstellen der Diagramm-Anzeige.");
+    return;
+  }
+
   initViewer(diagramContainer.value);
 
-  if (bpmnStore.bpmnXml) {
-    try {
+  try {
+    // Falls das BPMN bereits gespeichert ist durch vorherigen Aufruf
+    if (bpmnStore.bpmnXml) {
+      // BPMN in Viewer importieren
       await viewer.value?.importXML(bpmnStore.bpmnXml);
+
+      // Sichtbarkeit des Diagramms
       canvas.value?.zoom("fit-viewport");
-    } catch (error) {
-      console.error("Fehler beim Re-Importieren des BPMN:", error);
+
+      // Wiederherstellung des vorherigen Zustandes aus dem Store
+      selectedFileName.value = bpmnStore.selectedFileName;
+      gateways.value = bpmnStore.gateways;
+      rawPaths.value = bpmnStore.rawPaths;
+      mergedPaths.value = bpmnStore.mergedPaths;
+      program.value = bpmnStore.program;
+      selectedPathIndex.value = bpmnStore.selectedPathIndex;
+
+      // Aktuellen Pfad hervorheben
+      if (selectedPathIndex.value !== null) highlightPath();
     }
-    selectedFileName.value = bpmnStore.selectedFileName;
-    gateways.value = bpmnStore.gateways;
-    rawPaths.value = bpmnStore.rawPaths;
-    mergedPaths.value = bpmnStore.mergedPaths;
-    niceMergedPaths.value = bpmnStore.niceMergedPaths;
-    program.value = bpmnStore.program;
-    selectedPathIndex.value = bpmnStore.selectedPathIndex;
-    highlightPath();
+  } catch (error) {
+    console.error("Fehler beim Re-Importieren des BPMN:", error);
+    alert("Fehler beim Laden des BPMN.");
   }
 });
 
 const loadDiagramm = async (event: Event) => {
   // Datei aus dem <input> extrahieren
   const file = (event.target as HTMLInputElement).files?.[0];
-  selectedFileName.value = file?.name;
-  bpmnStore.selectedFileName = selectedFileName.value || "";
+
+  // Filename lokal und im Store speichern
+  selectedFileName.value = file?.name || null;
+  bpmnStore.selectedFileName = file?.name || null;
 
   if (!file) {
     console.warn("Keine Datei ausgewählt.");
     return;
   }
 
-  // Werte zurücksetzen
-  gateways.value = [];
+  // Analyse- und UI-Daten zurücksetzen
   rawPaths.value = [];
+  gateways.value = [];
   mergedPaths.value = [];
   program.value = "Merged paths";
   selectedPathIndex.value = null;
 
+  // Reader initialisieren
   const reader = new FileReader();
-
   reader.onload = async () => {
     const bpmnXML = reader.result as string;
+
+    // Speicher BPMN in Store
     bpmnStore.bpmnXml = bpmnXML;
 
     try {
+      // BPMN in Viewer importieren
       await viewer.value?.importXML(bpmnXML);
+
+      // Sichtbarkeite des Diagramms
       canvas.value?.zoom("fit-viewport");
     } catch (error) {
       console.error("Fehler beim Importieren der BPMN-Datei:", error);
-      alert("Das BPMN-Diagramm konnte nicht geladen werden.");
+      alert("Fehler beim Laden des BPMN.");
     }
   };
 
+  // Reader starten
   reader.readAsText(file);
 };
 
@@ -121,85 +149,103 @@ const analyzePaths = () => {
       throw new Error("ElementRegistry ist nicht initialisiert.");
     }
 
+    // Schritt 0: Start-Element aus dem Diagramm extrahieren
     const startElement = elementRegistry.value
       .getAll()
       .find((el) => el.type === "bpmn:StartEvent") as Element;
 
+    if (!startElement) {
+      throw new UserInputError("Kein Start-Event gefunden.");
+    }
+
+    // Schritt 1: Einzelne, rohe Pfade berechnen und Gateways sammeln
     const { allRawPaths, allGateways } = findRawPaths(
       startElement,
-      elementRegistry.value
+      elementRegistry.value,
+      VERBOSE
     );
     rawPaths.value = allRawPaths;
     gateways.value = allGateways;
 
-    linkGateways(gateways.value, rawPaths.value);
+    // Schritt 2: Gateways verknüpfen
+    linkGateways(gateways.value, rawPaths.value, VERBOSE);
 
-    // console.log(
-    //   "Gateways mit counterparts:",
-    //   gateways.value.map((gw) => [
-    //     gw.id,
-    //     gw.incoming,
-    //     gw.type,
-    //     gw.outgoing,
-    //     gw.counterpart,
-    //   ])
-    // );
+    if (VERBOSE.overview) {
+      console.log(
+        "All raw paths:",
+        nicePathList(rawPaths.value, gateways.value, elementRegistry.value)
+      );
+      console.log("All gateways:", gateways.value);
+      if (VERBOSE.overview)
+        console.log(
+          "Gateways (id, type, direction, incoming, outgoing, counterpart):",
+          gateways.value.map((gw) => [
+            gw.id,
+            gw.type,
+            gw.direction,
+            gw.incoming,
+            gw.outgoing,
+            gw.counterpart,
+          ])
+        );
+    }
 
-    console.log(
-      "All raw paths:",
-      nicePathList(rawPaths.value, gateways.value, elementRegistry.value)
-    );
-
+    // Schritt 3: Pfade als Mapping mergen und Deadlocks identifizieren
     const { mapping, deadlockPaths } = mergePaths(
       rawPaths.value,
       gateways.value,
-      verbose
-    );
-    console.log(
-      "Mapping of raw paths:",
-      mapping.map((comb) => comb.map((i) => i + 1))
-    );
-    console.log(
-      "All deadlock paths:",
-      deadlockPaths.map((deadlockPath) => [
-        deadlockPath.pathIndex + 1,
-        deadlockPath.breakup,
-      ])
+      VERBOSE
     );
 
+    if (VERBOSE.overview) {
+      console.log(
+        "Mapping of raw paths:",
+        mapping.map((comb) => comb.map((i) => i + 1))
+      );
+      console.log(
+        "All deadlock paths:",
+        deadlockPaths.map((deadlockPath) => [
+          deadlockPath.pathIndex + 1,
+          deadlockPath.breakup,
+        ])
+      );
+    }
+
+    // Schritt 4: Gemergte Pfade erzeugen
     mergedPaths.value = createMergedPaths(
       mapping,
-      deadlockPaths,
-      rawPaths.value
-    );
-    console.log("All merged paths:", mergedPaths.value);
-
-    niceMergedPaths.value = nicePathList(
       rawPaths.value,
-      gateways.value,
-      elementRegistry.value
+      deadlockPaths
     );
-    console.log("All nice merged paths:", niceMergedPaths.value);
-  } catch (err) {
-    console.error("Fehler bei der Pfadanalyse:", err);
-    alert((err as Error).message);
+
+    if (VERBOSE.overview)
+      console.log(
+        "All merged paths:",
+        nicePathList(rawPaths.value, gateways.value, elementRegistry.value)
+      );
+  } catch (error) {
+    if (error instanceof UserInputError) {
+      console.error("Das Diagramm ist fehlerhaft: " + (error as Error).message);
+      alert("Das Diagramm ist fehlerhaft: " + (error as Error).message);
+    } else {
+      console.error("Fehler bei der Pfadanalyse:", error);
+      alert("Ein Fehler bei der Pfadanalyse ist aufgetreten.");
+    }
   }
+
+  // Zustand im Store speichern
   bpmnStore.gateways = gateways.value;
   bpmnStore.rawPaths = rawPaths.value;
   bpmnStore.mergedPaths = mergedPaths.value;
-  bpmnStore.niceMergedPaths = niceMergedPaths.value;
 };
 
-const goToPathView = () => {
-  if (selectedPathIndex.value === null) return;
-
-  bpmnStore.program = program.value;
-  bpmnStore.selectedPathIndex = selectedPathIndex.value;
-
-  router.push({
-    name: "pathview",
-  });
-};
+function withError(fn: () => void) {
+  try {
+    fn();
+  } catch (error) {
+    alert((error as Error).message);
+  }
+}
 </script>
 
 <template>
@@ -231,14 +277,13 @@ const goToPathView = () => {
 
   <div class="flex gap-4">
     <!-- Diagramm -->
-    <!-- <div ref="diagramContainer" class="w-3/4 h-[400px] border"></div> -->
     <div ref="diagramContainer" class="w-full h-[500px] border"></div>
 
     <!-- Rechte Seitenleiste -->
     <div class="w-1/4 flex flex-col gap-2">
       <button
         v-if="selectedPathIndex !== null"
-        @click="goToPathView"
+        @click="withError(goToPathDiagram)"
         class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded disabled:opacity-50"
       >
         Pfad-Diagramm anzeigen
@@ -260,7 +305,7 @@ const goToPathView = () => {
     <!-- Pfad-Auswahl -->
     <select
       v-model.number="selectedPathIndex"
-      @change="highlightPath"
+      @change="withError(highlightPath)"
       class="border px-2 py-1 rounded"
     >
       <option :value="null">Pfad auswählen</option>
@@ -274,11 +319,18 @@ const goToPathView = () => {
     </select>
 
     <!-- Navigation -->
-    <button @click="previousPath" class="px-3 py-1 border rounded">◀</button>
-    <button @click="nextPath" class="px-3 py-1 border rounded">▶</button>
+    <button @click="withError(previousPath)" class="px-3 py-1 border rounded">
+      ◀
+    </button>
+    <button @click="withError(nextPath)" class="px-3 py-1 border rounded">
+      ▶
+    </button>
 
     <!-- Programm-Umschalter -->
-    <button @click="toggleProgram" class="ml-2 px-3 py-1 border rounded">
+    <button
+      @click="withError(toggleProgram)"
+      class="ml-2 px-3 py-1 border rounded"
+    >
       {{ program }}
     </button>
   </div>
@@ -292,23 +344,19 @@ const goToPathView = () => {
 }
 </style>
 
-<!-- Annotation pro Pfad an Start mit Entscheidungen die bei den Exclusive Gateways für diesen Pfad getroffen wurden. -->
+<!-- Bei mehreren inclusiven Gateways nacheinander (nicht nested), wird die Reihenfolge der Pfade chaotisch -->
 
-<!-- Mit Klassen arbeiten? -->
-
-<!-- !!! Bei mehreren inclusiven Gateways nacheinander (nicht nested), wird die Reihenfolge der Pfade chaotisch -->
+<!-- Komischerweise: Wenn ich das Diagramm auf der Website manuell lade, muss ich businessObject benutzen
+  (sonst outgoing ohne informationen) und nur per ID auf nextElement zugreifen.
+  flow.target ist nicht stabil, bei externem XML-import.
+  übrigens bei moddle gibt es businessObject nicht, dort würde man currentElement.outgoing verwenden -->
 
 <!-- git add. git commit -m "..." git push -->
 
 <!-- npx tsc --noEmit -->
 
-<!-- @ funktioniert nicht immer -->
-
-<!-- Teildiagramm bei 3parallel-exclusive-2parallel-stop falsch, pfad 2 falsch!! -->
-
 <!-- Besprechung:
- auf git pushen version 0.0.1
-Testfälle erweitern: Teste ob ausgegebener Pfad der Logik folgt, dass gleichviele Pfade durch split und join gateway gehen, teste Gateway Fehler, teste dass durch parallele immer mehrere pfade gehen.
+Loops behandeln
 Funktion hinzufügen: Durch eingeben eines Tasks in der Suchleiste werden Pfade gefiltert, die durch dieses Task gehen.
 Annotation zu Pfad-Diagramm mit getroffenen Entscheidungen hinzufügen
 Mit Cedric über Integration in bpmn modeler reden 

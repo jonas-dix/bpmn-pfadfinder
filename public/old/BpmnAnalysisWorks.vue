@@ -569,6 +569,50 @@ function mergeMatchingLists(first: number[][], second: number[][]): number[][] {
 //     ]
 //   )
 // );
+// not needed!!!
+const simplifyMappingOld = function (
+  mapping: number[][],
+  allPaths: string[][]
+): number[][] {
+  let changed = true;
+  let simplifiedMapping = mapping.map((a) => [...a]);
+
+  while (changed) {
+    changed = false;
+    const next: number[][] = [];
+    const added = Array(simplifiedMapping.length).fill(false);
+
+    for (let i = 0; i < simplifiedMapping.length; i++) {
+      if (added[i]) continue;
+      const a = new Set(
+        simplifiedMapping[i].flatMap((index) => allPaths[index])
+      );
+      for (let j = i + 1; j < simplifiedMapping.length; j++) {
+        if (added[j]) continue;
+        const b = new Set(
+          simplifiedMapping[j].flatMap((index) => allPaths[index])
+        );
+        const aContainsB = [...b].every((el) => a.has(el));
+        const bContainsA = [...a].every((el) => b.has(el));
+        if (aContainsB && bContainsA) {
+          const merged = Array.from(
+            new Set([...simplifiedMapping[i], ...simplifiedMapping[j]])
+          ).sort((x, y) => x - y);
+          next.push(merged);
+          added[i] = true;
+          added[j] = true;
+          changed = true;
+          break;
+        }
+      }
+      if (!added[i]) {
+        next.push(simplifiedMapping[i]);
+      }
+    }
+    simplifiedMapping = next.map((a) => [...a]);
+  }
+  return simplifiedMapping;
+};
 
 const simplifyMapping = function (
   mapping: number[][],
@@ -778,18 +822,245 @@ const toggleProgram = () => {
 }
 </style>
 
-<!-- npx tsc --noEmit -->
+<!-- /**
+ * Führt entsprechende Pfade an einem Gateway (parallel oder inclusive) zusammen.
+ * Gateway.outgoing viele Pfade werden zusammengefügt.
+ * Pfade werden gemergt, wenn sie das Gateway durchlaufen, dieselbe Vorgeschichte haben und, wenn sie an einem späteren Zeitpunkt sich überschneiden, auch
+ * zusammen bleiben, bzw., wenn sie vollkommen getrennt bleiben.
+ * In letzterem Fall wird der Pfad, der getrennt bleibt, also nicht mehr durch das Join Gateway läuft, als DeadlockPath aufgefasst.
+ * Das bedeutet, dass die Pfade alle nur bis zum Deadlockelement laufen.
+ * @param allRawPaths
+ * @param gateway
+ * @param VERBOSE
+ */
+const mergePathsAtGateway = function (
+  allRawPaths: string[][],
+  gateway: Gateway,
+  VERBOSE: Verbose = {}
+): { mappingAtGateway: number[][]; deadlockPathsAtGateway: DeadlockPath[] } {
+  const pathCombinations: number[][][] = [];
+  const deadlockPaths: DeadlockPath[] = [];
 
-<!-- error handling verbessern -->
+  const n = allRawPaths.length;
 
-<!-- continue und break benutzen -->
+  if (VERBOSE.merging)
+    console.log(`Betrachte Gateway ${gateway.id} vom Typ ${gateway.type}`);
+  // let vecOutgoings: number[] = [];
+  // if (gateway.type === "parallel") {
+  //   vecOutgoings = [gateway.outgoing];
+  // } else {
+  //   if (gateway.type === "inclusive") {
+  //     vecOutgoings = Array.from(
+  //       { length: gateway.outgoing },
+  //       (_, i) => i + 1 //gateway.outgoing - i
+  //     );
+  //   }
+  // }
 
-<!-- Annotation pro Pfad an Start mit Entscheidungen die bei den Exclusive Gateways für diesen Pfad getroffen wurden. -->
+  // Zur Überprüfung, dass alle Pfade behandelt wurden
+  const pathProcessed: boolean[] = Array(n).fill(false);
 
-<!-- Pro Pfad Anzeige- und Speicheroption des Diagramms mit Annotation. -->
+  let inclusiveCases: number;
+  if (gateway.type === "inclusive") inclusiveCases = gateway.outgoing;
+  else inclusiveCases = 1;
 
-<!-- Highlighting sollte auch Pfeile mit einbeziehen. -->
+  for (let k = 1; k < inclusiveCases + 1; k++) {
+    let numOutgoings: number;
+    if (gateway.type === "inclusive") numOutgoings = k;
+    else numOutgoings = gateway.outgoing;
+    const pathCombinationsK: number[][] = [];
+    if (VERBOSE.merging) console.log("Zahl der outgoings:", numOutgoings);
+    for (let i = 0; i < n; i++) {
+      const path = allRawPaths[i];
+      if (VERBOSE.merging) console.log("Betrachte Pfad", i + 1);
+      if (!path.includes(gateway.id)) {
+        pathCombinationsK.push([i]);
+        pathProcessed[i] = true;
+        if (VERBOSE.merging)
+          console.log(`Pfad ${i + 1} passierte dieses Gateway nicht.`);
+        continue;
+      }
+      if (numOutgoings === 1) {
+        pathCombinationsK.push([i]);
+        pathProcessed[i] = true;
+        if (VERBOSE.merging)
+          console.log(`Pfad ${i + 1} wird als einzelner Merge hinzugefügt.`);
+        continue;
+      }
+      const gatewayIndex = path.indexOf(gateway.id);
 
-<!-- Tesfälle schreiben -->
+      /**
+       * Versucht, Pfad i, der durch gateway zum Zeitpunkt gatewayIndex geht,
+       * mit numOutgoings vielen Pfaden j>i zu mergen.
+       * Dabei werden alle Pfadkombinationen betrachtet und diejenigen als Liste von Indizes zu pathcombinations hinzugefügt, die die Merging-Bedingungen erfüllen.
+       * pathProcessed und deadlockPaths werden dabei aktualisiert.
+       * @param outgoingsUsed
+       * @param pathsUsed
+       */
+      const mergeNewPath = (
+        pathsUsed = [i],
+        outgoingsUsed = [path[gatewayIndex]]
+      ): void => {
+        // Iteriere über alle Pfad j>i, die nach dem letzten gemergten Pfad kommen.
+        for (let j = i + 1; j < n; j++) {
+          const updatedPathsUsed = [...pathsUsed, j];
+          if (j > pathsUsed[pathsUsed.length - 1]) {
+            if (VERBOSE.merging)
+              console.log(`Überprüfe ob Pfad ${j + 1} gemergt werden kann.`);
+            const mergingPath = allRawPaths[j];
+            if (
+              sameStartThenDifferent(
+                path,
+                mergingPath,
+                gatewayIndex,
+                outgoingsUsed
+              ) &&
+              sameEndingIndex(path, mergingPath, gatewayIndex + 1)
+            ) {
+              // Wenn Pfad nicht zum join gateway zurückkommt, bleibt der ganze Prozess dort stehen
+              if (
+                gateway.counterpart &&
+                !deadlockPaths.some((dp) => dp.pathIndex === j) &&
+                !mergingPath.includes(gateway.counterpart)
+              ) {
+                if (VERBOSE.merging) console.log("Deadlock Pfad gefunden!");
+                const deadlockPath = {
+                  pathIndex: j,
+                  breakup: gateway.counterpart,
+                };
+                deadlockPaths.push(deadlockPath);
+              }
+              if (VERBOSE.merging) console.log("Merging erfolgreich.");
+              // Prüfe, ob genug Pfade zusammengefasst wurden.
+              if (updatedPathsUsed.length === numOutgoings) {
+                if (VERBOSE.merging) {
+                  console.log(
+                    "Pfade zusammengefügt:",
+                    updatedPathsUsed.map((n) => n + 1)
+                  );
+                }
+                pathCombinationsK.push(updatedPathsUsed);
+                for (const k of updatedPathsUsed) pathProcessed[k] = true;
+              } else {
+                // Speichere die benutzten Outgoings für das nächste Mergen
+                const updatedOutgoingsUsed = [
+                  ...outgoingsUsed,
+                  mergingPath[gatewayIndex + 1],
+                ];
+                // Es wird der nächste Pfad gesucht, der dazu gemergt werden kann.
+                mergeNewPath(updatedPathsUsed, updatedOutgoingsUsed);
+              }
+            }
+          }
+        }
+      };
 
-<!-- Mit Klassen arbeiten -->
+      if (VERBOSE.merging) console.log("Funktion mergeNewPath wird gestartet.");
+      mergeNewPath();
+      if (VERBOSE.merging) console.log("Funktion mergeNewPath wurde beendet.");
+    }
+    pathCombinations.push(pathCombinationsK);
+  }
+
+  if (pathProcessed.includes(false)) {
+    for (let i = 0; i < pathProcessed.length; i++) {
+      if (pathProcessed[i] === false) {
+        throw new Error(`Der Pfad ${i + 1} ist verloren gegangen!`);
+      }
+    }
+  }
+
+  const mappingAtGateway = pathCombinations.flatMap((x) => x);
+  // .sort((x, y) => {
+  //   for (let i = 0; i < Math.min(x.length, y.length); i++) {
+  //     if (x[i] !== y[i]) {
+  //       return x[i] - y[i];
+  //     }
+  //   }
+  //   return 0;
+  // });
+  const deadlockPathsAtGateway = deadlockPaths;
+  return { mappingAtGateway, deadlockPathsAtGateway };
+};
+
+/**
+ * Führt zwei Listen von Listen zusammen.
+ * Jedes a aus first wird mit entsprechenden b aus second zusammengefügt, sodass jeder Index aus a in einem b
+ * vertreten ist.
+ * Die resultierende Liste wird ohne Duplikate ausgegeben und so, dass jedes Listenelement sortiert ist
+ * und kein Wert doppelt auftritt.
+ * @param first
+ * @param second
+ */
+const mergeMatchingLists = function (
+  first: number[][],
+  second: number[][],
+  allPaths: string[][]
+): number[][] {
+  if (first.every((comb) => comb.length === 1)) {
+    return second;
+  }
+
+  let mapping: number[][] = [];
+  // let count = 0;
+
+  for (const a of first) {
+    let i = 0;
+    let mergingSuccesful = false;
+    /**
+     * Fasst Liste a mit Listen aus second zusammen.
+     * Für jeden Index von a wird eine Liste aus second gesucht, die diesen Index enthält.
+     * Diese Liste wird dann zu a hinzugefügt.
+     * Alle Kombinationen werden gesucht.
+     * @param index
+     * @param merged
+     * @param count
+     */
+    const findb = (index = i, merged = new Set(a)) => {
+      for (let j = 0; j < second.length; j++) {
+        const b = second[j];
+        const updatedMerged = new Set(merged);
+        if (b.includes(a[index])) {
+          b.forEach((el) => updatedMerged.add(el));
+          if (index < a.length - 1) {
+            findb(index + 1, updatedMerged);
+          } else {
+            const { updatedMapping, necessary } = addingNecessary(
+              Array.from(updatedMerged).sort((x, y) => x - y),
+              mapping,
+              allPaths
+            );
+            mapping = updatedMapping;
+            mergingSuccesful = true;
+            // if (necessary) count++;
+
+            // if (inclusiveOutgoings && count === 2 ** inclusiveOutgoings - 1) {
+            //   mappingBlock.sort((a, b) => {
+            //     if (a.length < b.length) return -1;
+            //     if (b.length < a.length) return 1;
+            //     for (let i = 0; i < Math.min(a.length, b.length); i++) {
+            //       if (a[i] !== b[i]) {
+            //         return a[i] - b[i];
+            //       }
+            //     }
+            //     return 0;
+            //   });
+
+            //   console.log("!!!", mappingBlock);
+            //   mapping.push(...mappingBlock);
+            //   mappingBlock = [];
+            //   count = 0;
+          }
+        }
+      }
+    };
+
+    findb();
+    if (mergingSuccesful === false)
+      throw new Error(
+        "Im Mapping des aktuellen Gateways ist ein Pfadindex nicht vertreten."
+      );
+  }
+
+  return mapping;
+}; -->

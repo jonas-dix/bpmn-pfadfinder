@@ -3,7 +3,7 @@ import { RouterLink } from "vue-router";
 import JobListing from "./JobListing.vue";
 import { onMounted, reactive } from "vue";
 import PulseLoader from "vue-spinner/src/PulseLoader.vue";
-import axios from "axios";
+// import axios from "axios";
 import { computed, type ComputedRef } from "vue";
 import type { JobType } from "@/types/bpmn";
 

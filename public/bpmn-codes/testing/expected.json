@@ -1,8 +1,8 @@
 [
   {
-    "file": "2exclusive-2parallel.bpmn",
-    "numberRawPaths": 4,
-    "numberMergedPaths": 2
+    "file": "2exclusive-2exclusive-2exclusive-salesprocess.bpmn",
+    "numberRawPaths": 5,
+    "numberMergedPaths": 5
   },
   {
     "file": "2exclusive-2exclusiveNested.bpmn",
@@ -10,23 +10,8 @@
     "numberMergedPaths": 3
   },
   {
-    "file": "2parallel-2parallel.bpmn",
+    "file": "2exclusive-2parallel.bpmn",
     "numberRawPaths": 4,
-    "numberMergedPaths": 1
-  },
-  {
-    "file": "2parallel-2parallelNested-2parallelNested.bpmn",
-    "numberRawPaths": 4,
-    "numberMergedPaths": 1
-  },
-  {
-    "file": "3parallel-3parallel.bpmn",
-    "numberRawPaths": 9,
-    "numberMergedPaths": 1
-  },
-  {
-    "file": "3parallel-2exclusiveNested-3parallelNested.bpmn",
-    "numberRawPaths": 6,
     "numberMergedPaths": 2
   },
   {
@@ -45,13 +30,48 @@
     "numberMergedPaths": 2
   },
   {
-    "file": "2parallel-1exclusive-simplified.bpmn",
-    "numberRawPaths": 3,
-    "numberMergedPaths": 2
+    "file": "2exclusive-3parallel-3exlusive.bpmn",
+    "numberRawPaths": 18,
+    "numberMergedPaths": 6
+  },
+  {
+    "file": "2inclusive-2inclusive.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 9
+  },
+  {
+    "file": "2inclusive-2parallelNested-3inclusive.bpmn",
+    "numberRawPaths": 9,
+    "numberMergedPaths": 21
+  },
+  {
+    "file": "2inclusive-3inclusive.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 21
+  },
+  {
+    "file": "2parallel-2parallel.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 1
   },
   {
     "file": "2parallel-2parallel-2exclusive.bpmn",
     "numberRawPaths": 4,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "2parallel-2parallelNested-2parallelNested.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 1
+  },
+  {
+    "file": "2parallel-exclusive-2parallel-stop.bpmn",
+    "numberRawPaths": 5,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "2parallel-exclusive-simplified.bpmn",
+    "numberRawPaths": 3,
     "numberMergedPaths": 2
   },
   {
@@ -60,18 +80,77 @@
     "numberMergedPaths": 2
   },
   {
+    "file": "3exclusive-2exclusive-3exclusive.bpmn",
+    "numberRawPaths": 9,
+    "numberMergedPaths": 9
+  },
+  {
+    "file": "3inclusive.bpmn",
+    "numberRawPaths": 3,
+    "numberMergedPaths": 7
+  },
+  {
+    "file": "3inclusive-exclusive-2parallel-stop.bpmn",
+    "numberRawPaths": 7,
+    "numberMergedPaths": 11
+  },
+  {
+    "file": "3parallel-2exclusive.bpmn",
+    "numberRawPaths": 4,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "3parallel-2exclusive-2exclusive-2parallel.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 4
+  },
+  {
+    "file": "3parallel-2exclusive-3exclusive.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 4
+  },
+  {
+    "file": "3parallel-2exclusiveNested-3parallelNested.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "3parallel-2inclusive-2exclusive-2parallel.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 6
+  },
+  {
+    "file": "3parallel-3parallel.bpmn",
+    "numberRawPaths": 9,
+    "numberMergedPaths": 1
+  },
+  {
     "file": "3parallel-exclusive-2parallel-stop.bpmn",
     "numberRawPaths": 7,
     "numberMergedPaths": 2
   },
   {
-    "file": "2inclusive-2parallelNested-3inclusive.bpmn",
-    "numberRawPaths": 9,
-    "numberMergedPaths": 21
+    "file": "error-2parallel-2parallel-exclusive.bpmn",
+    "shouldFail": true
   },
   {
-    "file": "2parallel-exclusive-2parallelend.bpmn",
-    "numberRawPaths": 5,
-    "numberMergedPaths": 2
+    "file": "error-3parallel-exclusive-2parallel.bpmn",
+    "shouldFail": true
+  },
+  {
+    "file": "error-3parallel-manyexclusive.bpmn",
+    "shouldFail": true
+  },
+  {
+    "file": "error-3parallel-manyexclusive-2inclusive.bpmn",
+    "shouldFail": true
+  },
+  {
+    "file": "error-3parallel-manyexclusive-2parallel.bpmn",
+    "shouldFail": true
+  },
+  {
+    "file": "error-4parallel-manyexclusive-2parallel.bpmn",
+    "shouldFail": true
   }
 ]

@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 import BpmnModdle from "bpmn-moddle";
-import type { SimpleElement, SimpleElementRegistry } from "../src/types/bpmn";
+import type {
+  Gateway,
+  SimpleElement,
+  SimpleElementRegistry,
+} from "@/types/bpmn";
 
 const projectRoot = process.cwd();
 const diagramsDir = path.resolve(projectRoot, "public/bpmn-codes/testing");

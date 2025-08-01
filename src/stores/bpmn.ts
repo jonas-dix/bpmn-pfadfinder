@@ -4,19 +4,19 @@ import type { Gateway } from "@/types/bpmn";
 
 export const useBpmnStore = defineStore("bpmn", () => {
   const bpmnXml = ref<string | null>(null);
-  const selectedFileName = ref<string>("");
-  const gateways = ref<Gateway[]>([]);
+  const selectedFileName = ref<string | null>(null);
+
   const rawPaths = ref<string[][]>([]);
+  const gateways = ref<Gateway[]>([]);
   const mergedPaths = ref<string[][]>([]);
-  const niceMergedPaths = ref<string[][]>([]);
-  const program = ref<string>("Merged paths");
+
+  const program = ref<"Raw paths" | "Merged paths">("Merged paths");
   const consideredPaths = computed(() => {
     if (program.value === "Raw paths") {
       return rawPaths.value;
-    } else if (program.value === "Merged paths") {
+    } else {
       return mergedPaths.value;
     }
-    return [];
   });
   const selectedPathIndex = ref<number | null>(null);
 
@@ -26,7 +26,6 @@ export const useBpmnStore = defineStore("bpmn", () => {
     gateways,
     rawPaths,
     mergedPaths,
-    niceMergedPaths,
     program,
     consideredPaths,
     selectedPathIndex,

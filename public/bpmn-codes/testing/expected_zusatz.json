@@ -13,5 +13,11 @@
     "file": "3parallel-manyexclusive-2inclusive.bpmn",
     "numberRawPaths": 7,
     "numberMergedPaths": 16
+  },
+  {
+    "file": "3parallel-stop.bpmn",
+    "numberRawPaths": 3,
+    "numberMergedPaths": 1,
+    "gatewayLogic": false
   }
 ]

@@ -1,13 +1,17 @@
 import { Ref } from "vue";
+import router from "@/router";
+import { useBpmnStore } from "@/stores/bpmn";
 
 export function usePathNavigation(
-  program: Ref<string>,
+  program: Ref<"Raw paths" | "Merged paths">,
   consideredPaths: Ref<string[][]>,
   selectedPathIndex: Ref<number | null>,
   highlightPath: () => void
 ) {
+  const bpmnStore = useBpmnStore();
+
   /**
-   * Der Nächste Pfad wird angewählt
+   * Der Nächste Pfad wird ausgewählt
    */
   const nextPath = () => {
     if (consideredPaths.value.length === 0) {
@@ -26,11 +30,11 @@ export function usePathNavigation(
   };
 
   /**
-   * Der vorherige Pfad wird angewählt.
+   * Der vorherige Pfad wird ausgewählt.
    */
   const previousPath = () => {
     if (consideredPaths.value.length === 0) {
-      console.error("Es gibt keine Pfade zur Auswahl.");
+      throw new Error("Es gibt keine Pfade zur Auswahl.");
     } else {
       if (selectedPathIndex.value === null || selectedPathIndex.value === 0) {
         selectedPathIndex.value = consideredPaths.value.length - 1;
@@ -50,14 +54,30 @@ export function usePathNavigation(
     } else if (program.value === "Merged paths") {
       program.value = "Raw paths";
     }
+
     if (consideredPaths.value.length === 0) {
-      console.error("Es gibt keine Pfade zur Auswahl.");
-      selectedPathIndex.value = null;
+      throw new Error("Es gibt keine Pfade zur Auswahl.");
     } else {
       selectedPathIndex.value = 0;
       highlightPath();
     }
   };
 
-  return { nextPath, previousPath, toggleProgram };
+  /**
+   * Leitet auf die Seite weiter, in der das Pfad-Diagramm angezeigt wird.
+   */
+  const goToPathDiagram = () => {
+    if (selectedPathIndex.value === null) {
+      throw new Error("Kein Pfad ausgewählt.");
+    }
+
+    bpmnStore.program = program.value;
+    bpmnStore.selectedPathIndex = selectedPathIndex.value;
+
+    router.push({
+      name: "pathdiagram",
+    });
+  };
+
+  return { nextPath, previousPath, toggleProgram, goToPathDiagram };
 }
