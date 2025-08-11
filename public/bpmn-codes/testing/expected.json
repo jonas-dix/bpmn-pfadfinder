@@ -35,6 +35,11 @@
     "numberMergedPaths": 6
   },
   {
+    "file": "2exclusive-loop.bpmn",
+    "numberRawPaths": 7,
+    "numberMergedPaths": 7
+  },
+  {
     "file": "2inclusive-2inclusive.bpmn",
     "numberRawPaths": 4,
     "numberMergedPaths": 9
@@ -67,11 +72,6 @@
   {
     "file": "2parallel-exclusive-2parallel-stop.bpmn",
     "numberRawPaths": 5,
-    "numberMergedPaths": 2
-  },
-  {
-    "file": "2parallel-exclusive-simplified.bpmn",
-    "numberRawPaths": 3,
     "numberMergedPaths": 2
   },
   {

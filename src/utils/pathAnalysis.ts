@@ -16,6 +16,7 @@ import type {
 export const findRawPaths = function (
   startElement: SimpleElement,
   elementRegistry: SimpleElementRegistry,
+  maxDepth: number = 25,
   VERBOSE: Verbose = {}
 ): {
   allRawPaths: string[][];
@@ -26,10 +27,24 @@ export const findRawPaths = function (
 
   // Funktion, die für Tiefensuche rekursiv aufgerufen wird
   const dfs = (currentElement: SimpleElement, currentPath: string[] = []) => {
+    if (currentPath.length >= maxDepth) {
+      console.warn(
+        "Maximale Pfadtiefe erreicht bei Element:",
+        currentElement.id
+      );
+      return;
+    }
+
+    const isFirstLoopElement =
+      currentPath.includes(currentElement.id) &&
+      new Set(currentPath).size === currentPath.length
+        ? true
+        : false;
+
     currentPath.push(currentElement.id);
 
     if (currentElement.type === "bpmn:EndEvent") {
-      allRawPaths.push([...currentPath]); // Speicher Kopie des Arrays
+      allRawPaths.push([...currentPath]);
       if (VERBOSE.rawPaths) {
         console.log("Raw path hinzugefügt:", currentPath);
       }
@@ -37,40 +52,67 @@ export const findRawPaths = function (
     }
 
     let gatewayType: string | undefined;
-    if (currentElement.type === "bpmn:ExclusiveGateway") {
-      gatewayType = "exclusive";
-    } else if (currentElement.type === "bpmn:ParallelGateway") {
-      gatewayType = "parallel";
-    } else if (currentElement.type === "bpmn:InclusiveGateway") {
-      gatewayType = "inclusive";
+    switch (currentElement.type) {
+      case "bpmn:ExclusiveGateway":
+        gatewayType = "exclusive";
+        break;
+      case "bpmn:ParallelGateway":
+        gatewayType = "parallel";
+        break;
+      case "bpmn:InclusiveGateway":
+        gatewayType = "inclusive";
+        break;
+      default:
+        gatewayType = undefined;
+        break;
     }
-
     const outgoing: SimpleElement[] =
       currentElement.businessObject?.outgoing || [];
-    const incoming: SimpleElement[] =
-      currentElement.businessObject?.incoming || [];
-    const direction =
-      outgoing.length > incoming.length
-        ? "split"
-        : outgoing.length < incoming.length
-        ? "join"
-        : "join/split";
-    if (gatewayType && !allGateways.some((gw) => gw.id === currentElement.id)) {
-      allGateways.push({
-        id: currentElement.id,
-        type: gatewayType,
-        direction: direction,
-        incoming: incoming.length,
-        outgoing: outgoing.length,
-      });
+
+    if (gatewayType) {
+      const incoming: SimpleElement[] =
+        currentElement.businessObject?.incoming || [];
+      const direction =
+        outgoing.length > incoming.length
+          ? "split"
+          : outgoing.length < incoming.length
+          ? "join"
+          : "join/split";
+      const existentGateway = allGateways.find(
+        (gw) => gw.id === currentElement.id
+      );
+      if (existentGateway) {
+        if (isFirstLoopElement) {
+          existentGateway.loop = true;
+        }
+      } else {
+        allGateways.push({
+          id: currentElement.id,
+          type: gatewayType,
+          direction: direction,
+          incoming: incoming.length,
+          outgoing: outgoing.length,
+          loop: isFirstLoopElement,
+        });
+      }
     }
 
     for (const flow of outgoing) {
-      // const nextElement = flow.target;
       const targetId = flow.targetRef?.id;
       if (!targetId) continue;
       const nextElement = elementRegistry.get(targetId);
       if (nextElement) {
+        // if (
+        //   currentPath.includes(currentElement.id) &&
+        //   !currentPath.includes(nextElement.id)
+        // ) {
+        //   const existentGateway = allGateways.find(
+        //     (gw) => gw.id === currentElement.id
+        //   );
+        //   if (existentGateway) {
+        //     existentGateway.loop = true;
+        //   }
+        // }
         dfs(nextElement, [...currentPath]);
       }
     }
@@ -96,7 +138,8 @@ export const linkGateways = function (
   VERBOSE: Verbose = {}
 ) {
   // Weise einem join gateway das erste split gateway zu, das die Eigenschaft hat, dass jeder Pfad
-  // der das join gateway durchläuft, vorher das split gateway durchlaufen ist
+  // der das join gateway durchläuft, vorher das split gateway durchlaufen ist, es sei denn das joinGateway
+  // wird geloopt, in dem Fall, ist die Reihenfolge egal
   for (const joinGateway of gateways
     .filter((gw) => gw.direction === "join")
     .slice()
@@ -108,17 +151,19 @@ export const linkGateways = function (
       for (const path of allRawPaths) {
         if (path.includes(joinGateway.id)) {
           if (
-            path.includes(splitGateway.id) &&
-            path.indexOf(splitGateway.id) > path.indexOf(joinGateway.id)
-          )
-            continue outer;
-          if (!path.includes(splitGateway.id)) {
+            !path.includes(splitGateway.id) ||
+            (!joinGateway.loop &&
+              path.indexOf(splitGateway.id) > path.indexOf(joinGateway.id))
+          ) {
             continue outer;
           }
         }
       }
       joinGateway.counterpart = splitGateway.id;
       splitGateway.counterpart = joinGateway.id;
+      if (joinGateway.loop) {
+        splitGateway.loop = true;
+      }
       if (VERBOSE.gateways)
         console.log(
           `Join Gateway ${joinGateway.id} und Split Gateway ${splitGateway.id} wurden verknüpft.`
@@ -175,8 +220,10 @@ const sameStartThenDifferent = function (
 };
 
 /**
- * Wenn Liste a ab einem startIndex den gleichen Wert wie b aufweist und beide Listen ab da gleich enden, wird true ausgegeben.
- * Falls sie ab dem startIndex überhaupt keinen gleichen Wert aufweisen, wird ebenfalls true ausgegeben.
+ * Wenn Liste a ab einem startIndex den gleichen Wert wie b aufweist und beide Listen ab da gleich enden, wird der entsprechende
+ * String ausgegeben.
+ * Falls sie ab dem startIndex überhaupt keinen gleichen Wert aufweisen, wird true ausgegeben.
+ * Ansonsten wird false ausgegeben.
  * @param a
  * @param b
  * @param startIndex
@@ -185,7 +232,7 @@ const sameEndingIndex = function (
   a: string[],
   b: string[],
   startIndex: number
-): boolean {
+): string | null {
   for (let i = startIndex; i < a.length; i++) {
     if (b.includes(a[i])) {
       const indexB = b.indexOf(a[i]);
@@ -193,13 +240,13 @@ const sameEndingIndex = function (
         a.slice(i).length === b.slice(indexB).length &&
         a.slice(i).every((val, j) => val === b.slice(indexB)[j])
       ) {
-        return true;
+        return a[i];
       } else {
-        return false;
+        return null;
       }
     }
   }
-  return true;
+  return "Seperate Ending";
 };
 
 /**
@@ -251,12 +298,13 @@ const mergePathsAtGateway = function (
         mapping.push([i]);
         pathProcessed[i] = true;
 
-        if (VERBOSE.merging)
+        if (VERBOSE.merging) {
           console.log(
             `Pfad ${
               i + 1
             } wird als einzelner Merge hinzugefügt, da er dieses Gateway nicht durchläuft`
           );
+        }
         continue;
       }
       if (numOutgoing === 1) {
@@ -294,15 +342,27 @@ const mergePathsAtGateway = function (
             console.log(`Überprüfe, ob Pfad ${j + 1} gemergt werden kann.`);
           }
           const mergingPath = allRawPaths[j];
+          const endingElement = sameEndingIndex(
+            path,
+            mergingPath,
+            gatewayIndex + 1
+          );
           if (
+            endingElement &&
             sameStartThenDifferent(
               path,
               mergingPath,
               gatewayIndex,
               outgoingsUsed
-            ) &&
-            sameEndingIndex(path, mergingPath, gatewayIndex + 1)
+            )
           ) {
+            if (
+              gateway.counterpart &&
+              endingElement != "Seperate Ending" &&
+              gateway.counterpart != endingElement
+            ) {
+              continue;
+            }
             if (VERBOSE.merging) {
               console.log(`Merge Pfad ${j + 1} dazu.`);
             }

@@ -4,6 +4,7 @@ export type Gateway = {
   direction: string;
   incoming: number;
   outgoing: number;
+  loop: boolean;
   counterpart?: string;
 };
 

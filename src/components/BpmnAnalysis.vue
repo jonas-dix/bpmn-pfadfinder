@@ -20,10 +20,11 @@ import { createMergedPaths, nicePathList } from "@/utils/formatting";
 // --------------- Konfiguration ---------------
 const config = {
   defaultProgram: "Merged paths" as "Raw paths" | "Merged paths",
+  maxDepth: 15,
   verboseFlags: {
     rawPaths: false,
     gateways: false,
-    merging: false,
+    merging: true,
     mapping: false,
     overview: true,
   },
@@ -33,6 +34,7 @@ const config = {
 const diagramContainer = shallowRef<HTMLElement | null>(null);
 const selectedFileName = ref<string | null>(null);
 
+const maxDepth = ref<number>(config.maxDepth);
 const gateways = ref<Gateway[]>([]);
 const rawPaths = ref<string[][]>([]);
 const mergedPaths = ref<string[][]>([]);
@@ -162,32 +164,46 @@ const analyzePaths = () => {
     const { allRawPaths, allGateways } = findRawPaths(
       startElement,
       elementRegistry.value,
+      maxDepth.value,
       VERBOSE
     );
     rawPaths.value = allRawPaths;
     gateways.value = allGateways;
-
-    // Schritt 2: Gateways verknüpfen
-    linkGateways(gateways.value, rawPaths.value, VERBOSE);
 
     if (VERBOSE.overview) {
       console.log(
         "All raw paths:",
         nicePathList(rawPaths.value, gateways.value, elementRegistry.value)
       );
-      console.log("All gateways:", gateways.value);
-      if (VERBOSE.overview)
-        console.log(
-          "Gateways (id, type, direction, incoming, outgoing, counterpart):",
-          gateways.value.map((gw) => [
-            gw.id,
-            gw.type,
-            gw.direction,
-            gw.incoming,
-            gw.outgoing,
-            gw.counterpart,
-          ])
-        );
+      console.log(
+        "All unlinked gateways:",
+        allGateways.map((gw) => [
+          gw.id,
+          gw.type,
+          gw.direction,
+          gw.incoming,
+          gw.outgoing,
+          gw.loop,
+        ])
+      );
+    }
+
+    // Schritt 2: Gateways verknüpfen
+    linkGateways(gateways.value, rawPaths.value, VERBOSE);
+
+    if (VERBOSE.overview) {
+      console.log(
+        "All linked Gateways:",
+        gateways.value.map((gw) => [
+          gw.id,
+          gw.type,
+          gw.direction,
+          gw.incoming,
+          gw.outgoing,
+          gw.counterpart,
+          gw.loop,
+        ])
+      );
     }
 
     // Schritt 3: Pfade als Mapping mergen und Deadlocks identifizieren
@@ -224,6 +240,7 @@ const analyzePaths = () => {
         nicePathList(rawPaths.value, gateways.value, elementRegistry.value)
       );
   } catch (error) {
+    program.value = "Raw paths";
     if (error instanceof UserInputError) {
       console.error("Das Diagramm ist fehlerhaft: " + (error as Error).message);
       alert("Das Diagramm ist fehlerhaft: " + (error as Error).message);
@@ -344,7 +361,12 @@ function withError(fn: () => void) {
 }
 </style>
 
-<!-- Bei mehreren inclusiven Gateways nacheinander (nicht nested), wird die Reihenfolge der Pfade chaotisch -->
+<!-- 
+Loops:
+Loop soll nur einmal durchlaufen werden
+Mergen schlägt fehl, wenn gateways mehrmals auftreten: Idee in mergePaths mehrmals mergepathsatgateway anwenden
+mit zusätzlichem argument n, das den n-ten Auftritt des gateways beschreibt
+-->
 
 <!-- Komischerweise: Wenn ich das Diagramm auf der Website manuell lade, muss ich businessObject benutzen
   (sonst outgoing ohne informationen) und nur per ID auf nextElement zugreifen.
@@ -355,8 +377,9 @@ function withError(fn: () => void) {
 
 <!-- npx tsc --noEmit -->
 
-<!-- Besprechung:
+<!-- To Do:
 Loops behandeln
+zwei start option abgdecken
 Funktion hinzufügen: Durch eingeben eines Tasks in der Suchleiste werden Pfade gefiltert, die durch dieses Task gehen.
 Annotation zu Pfad-Diagramm mit getroffenen Entscheidungen hinzufügen
 Mit Cedric über Integration in bpmn modeler reden 
