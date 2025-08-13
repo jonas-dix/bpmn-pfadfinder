@@ -9,16 +9,20 @@ import type {
   SimpleElementRegistry,
 } from "@/types/bpmn";
 import { loadTestDiagram } from "./testSetup"; // siehe vorheriger Beitrag
-import { findRawPaths, linkGateways, mergePaths } from "@/utils/pathAnalysis";
+import {
+  findStartElements,
+  findRawPaths,
+  linkGateways,
+  mergePaths,
+} from "@/utils/pathAnalysis";
 import { createMergedPaths, nicePath } from "@/utils/formatting";
 
 import type { ExpectedCase } from "@/types/testing";
 
 const projectRoot = process.cwd();
-const diagramsDir = path.resolve(projectRoot, "public/bpmn-codes/testing");
 
 const expectedCases: ExpectedCase[] = JSON.parse(
-  fs.readFileSync(path.resolve(diagramsDir, "expected.json"), "utf-8")
+  fs.readFileSync(path.resolve(projectRoot, "tests/expected.json"), "utf-8")
 );
 
 describe("Testen der Pfadanalyse", () => {
@@ -28,14 +32,14 @@ describe("Testen der Pfadanalyse", () => {
       if (testCase.shouldFail) {
         it("wirft einen Fehler, da das Diagramm falsch ist.", async () => {
           await expect(async () => {
-            const { startElement, elementRegistry } = await loadTestDiagram(
+            const { startElements, elementRegistry } = await loadTestDiagram(
               file
             );
             const { allRawPaths, allGateways } = findRawPaths(
-              startElement,
-              elementRegistry
+              elementRegistry,
+              startElements
             );
-            linkGateways(allGateways, allRawPaths);
+            linkGateways(allGateways, allRawPaths, startElements);
           }).rejects.toThrow();
         });
 
@@ -44,7 +48,7 @@ describe("Testen der Pfadanalyse", () => {
 
       const { numberRawPaths, numberMergedPaths } = testCase;
 
-      let startElement: SimpleElement;
+      let startElements: SimpleElement[];
       let elementRegistry: SimpleElementRegistry;
       let allRawPaths: string[][] = [];
       let allGateways: Gateway[] = [];
@@ -53,12 +57,12 @@ describe("Testen der Pfadanalyse", () => {
       let mergedPaths: string[][] = [];
 
       beforeAll(async () => {
-        ({ startElement, elementRegistry } = await loadTestDiagram(file));
+        ({ startElements, elementRegistry } = await loadTestDiagram(file));
         ({ allRawPaths, allGateways } = findRawPaths(
-          startElement,
-          elementRegistry
+          elementRegistry,
+          startElements
         ));
-        linkGateways(allGateways, allRawPaths);
+        linkGateways(allGateways, allRawPaths, startElements);
         ({ mapping, deadlockPaths } = mergePaths(allRawPaths, allGateways));
         mergedPaths = createMergedPaths(mapping, allRawPaths, deadlockPaths);
       });

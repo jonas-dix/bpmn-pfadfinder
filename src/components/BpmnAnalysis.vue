@@ -4,7 +4,7 @@ import { computed, onMounted, ref, shallowRef } from "vue";
 
 // Stores, Types, Error
 import { useBpmnStore } from "@/stores/bpmn";
-import type { Element } from "diagram-js/lib/model";
+// import type { Element } from "diagram-js/lib/model";
 import type { Gateway } from "@/types/bpmn";
 import { UserInputError } from "@/utils/error";
 
@@ -14,13 +14,18 @@ import { usePathHighlighting } from "@/composables/usePathHighlighting";
 import { usePathNavigation } from "@/composables/usePathNavigation";
 
 // Hilfsfunktionen zur Pfadanalyse & Formatierung
-import { findRawPaths, linkGateways, mergePaths } from "@/utils/pathAnalysis";
+import {
+  findStartElements,
+  findRawPaths,
+  linkGateways,
+  mergePaths,
+} from "@/utils/pathAnalysis";
 import { createMergedPaths, nicePathList } from "@/utils/formatting";
 
 // --------------- Konfiguration ---------------
 const config = {
   defaultProgram: "Merged paths" as "Raw paths" | "Merged paths",
-  maxDepth: 15,
+  maxDepth: 25,
   verboseFlags: {
     rawPaths: false,
     gateways: false,
@@ -152,18 +157,15 @@ const analyzePaths = () => {
     }
 
     // Schritt 0: Start-Element aus dem Diagramm extrahieren
-    const startElement = elementRegistry.value
-      .getAll()
-      .find((el) => el.type === "bpmn:StartEvent") as Element;
-
-    if (!startElement) {
+    const startElements = findStartElements(elementRegistry.value);
+    if (startElements.length === 0) {
       throw new UserInputError("Kein Start-Event gefunden.");
     }
 
     // Schritt 1: Einzelne, rohe Pfade berechnen und Gateways sammeln
     const { allRawPaths, allGateways } = findRawPaths(
-      startElement,
       elementRegistry.value,
+      startElements,
       maxDepth.value,
       VERBOSE
     );
@@ -189,7 +191,7 @@ const analyzePaths = () => {
     }
 
     // Schritt 2: Gateways verknüpfen
-    linkGateways(gateways.value, rawPaths.value, VERBOSE);
+    linkGateways(gateways.value, rawPaths.value, startElements, VERBOSE);
 
     if (VERBOSE.overview) {
       console.log(
@@ -198,8 +200,11 @@ const analyzePaths = () => {
           gw.id,
           gw.type,
           gw.direction,
-          gw.incoming,
-          gw.outgoing,
+          gw.direction === "split"
+            ? gw.outgoing
+            : gw.direction === "join"
+            ? gw.incoming
+            : 1,
           gw.counterpart,
           gw.loop,
         ])
@@ -363,9 +368,8 @@ function withError(fn: () => void) {
 
 <!-- 
 Loops:
-Loop soll nur einmal durchlaufen werden
-Mergen schlägt fehl, wenn gateways mehrmals auftreten: Idee in mergePaths mehrmals mergepathsatgateway anwenden
-mit zusätzlichem argument n, das den n-ten Auftritt des gateways beschreibt
+Mergen schlägt fehl, wenn gateways mehrmals auftreten:
+Idee Gateway zwei mal abspeichern für jeden loop durchlauf
 -->
 
 <!-- Komischerweise: Wenn ich das Diagramm auf der Website manuell lade, muss ich businessObject benutzen

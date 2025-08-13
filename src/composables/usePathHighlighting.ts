@@ -36,7 +36,8 @@ export function usePathHighlighting(
     if (VERBOSE.overview) {
       console.log(
         "Highlighted Path:",
-        nicePath(path, gateways.value, elementRegistry.value)
+        nicePath(path, gateways.value, elementRegistry.value),
+        path
       );
     }
 

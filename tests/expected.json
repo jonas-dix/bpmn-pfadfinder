@@ -35,11 +35,6 @@
     "numberMergedPaths": 6
   },
   {
-    "file": "2exclusive-loop.bpmn",
-    "numberRawPaths": 7,
-    "numberMergedPaths": 7
-  },
-  {
     "file": "2inclusive-2inclusive.bpmn",
     "numberRawPaths": 4,
     "numberMergedPaths": 9
@@ -78,6 +73,21 @@
     "file": "2parallel-exclusive-stop.bpmn",
     "numberRawPaths": 3,
     "numberMergedPaths": 2
+  },
+  {
+    "file": "2start-2exclusive-2parallel-2parallel.bpmn",
+    "numberRawPaths": 8,
+    "numberMergedPaths": 3
+  },
+  {
+    "file": "2start-3exclusive-3parallel-2parallel.bpmn",
+    "numberRawPaths": 12,
+    "numberMergedPaths": 4
+  },
+  {
+    "file": "2start-3exclusive-3parallel-2parallel-stop.bpmn",
+    "numberRawPaths": 18,
+    "numberMergedPaths": 8
   },
   {
     "file": "3exclusive-2exclusive-3exclusive.bpmn",
@@ -152,5 +162,20 @@
   {
     "file": "error-4parallel-manyexclusive-2parallel.bpmn",
     "shouldFail": true
+  },
+  {
+    "file": "loopDiagram-loop.bpmn",
+    "numberRawPaths": 2,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "loopDiagram-2exclusive-2parallelNested-loop.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 4
+  },
+  {
+    "file": "loopDiagram-loop-2parallelNested-loop.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 2
   }
 ]

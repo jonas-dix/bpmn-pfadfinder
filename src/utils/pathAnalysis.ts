@@ -7,6 +7,19 @@ import type {
   Verbose,
 } from "@/types/bpmn";
 
+export const findStartElements = function (
+  elementRegistry: SimpleElementRegistry
+): SimpleElement[] {
+  const startElements: SimpleElement[] = [];
+  const allElements = elementRegistry.getAll();
+  for (const el of allElements) {
+    if (el.type === "bpmn:StartEvent") {
+      startElements.push(el);
+    }
+  }
+  return startElements;
+};
+
 /**
  * Berechnet alle Pfade, ausgehend von currentElement mit Tiefensuche (DFS).
  * Dabei werden alle Gateways als Exclusive Gateways aufgefasst.
@@ -14,15 +27,15 @@ import type {
  * @param elementRegistry
  */
 export const findRawPaths = function (
-  startElement: SimpleElement,
   elementRegistry: SimpleElementRegistry,
+  startElements: SimpleElement[],
   maxDepth: number = 25,
   VERBOSE: Verbose = {}
 ): {
   allRawPaths: string[][];
   allGateways: Gateway[];
 } {
-  const allRawPaths: string[][] = [];
+  let allRawPaths: string[][] = [];
   const allGateways: Gateway[] = [];
 
   // Funktion, die für Tiefensuche rekursiv aufgerufen wird
@@ -37,9 +50,14 @@ export const findRawPaths = function (
 
     const isFirstLoopElement =
       currentPath.includes(currentElement.id) &&
-      new Set(currentPath).size === currentPath.length
-        ? true
-        : false;
+      new Set(currentPath).size === currentPath.length;
+
+    const occurences = currentPath.filter(
+      (id) => id === currentElement.id
+    ).length;
+    if (occurences > 1) {
+      return;
+    }
 
     currentPath.push(currentElement.id);
 
@@ -84,6 +102,20 @@ export const findRawPaths = function (
       if (existentGateway) {
         if (isFirstLoopElement) {
           existentGateway.loop = true;
+        } else if (
+          !allGateways.find(
+            (gw) => gw.id === currentElement.id + "_" + occurences
+          ) &&
+          occurences === 1
+        ) {
+          allGateways.push({
+            id: currentElement.id + "_" + occurences,
+            type: gatewayType,
+            direction: direction,
+            incoming: incoming.length,
+            outgoing: outgoing.length,
+            loop: false,
+          });
         }
       } else {
         allGateways.push({
@@ -101,28 +133,38 @@ export const findRawPaths = function (
       const targetId = flow.targetRef?.id;
       if (!targetId) continue;
       const nextElement = elementRegistry.get(targetId);
+      // if (currentPath.includes(targetId)) {
+      //   currentPath.push("loop");
+      // }
       if (nextElement) {
-        // if (
-        //   currentPath.includes(currentElement.id) &&
-        //   !currentPath.includes(nextElement.id)
-        // ) {
-        //   const existentGateway = allGateways.find(
-        //     (gw) => gw.id === currentElement.id
-        //   );
-        //   if (existentGateway) {
-        //     existentGateway.loop = true;
-        //   }
-        // }
         dfs(nextElement, [...currentPath]);
       }
     }
   };
 
-  dfs(startElement);
+  for (const startElement of startElements) {
+    dfs(startElement);
+  }
 
   if (allRawPaths.length === 0) {
     throw new Error("Die Funktion findPaths hat einen leeren Output ergeben.");
   }
+
+  // // Im Falle eines Loops werden Pfade gelöscht, welche mehrmals durch dasselbe Loop laufen
+  // const uniquePaths = new Set<string>();
+  // allRawPaths = allRawPaths.filter((path) => {
+  //   const pathSetString = JSON.stringify([...new Set(path)].sort());
+  //   if (uniquePaths.has(pathSetString)) {
+  //     return false;
+  //   }
+  //   uniquePaths.add(pathSetString);
+  //   return true;
+  // });
+
+  // // Entferne "loop"
+  // allRawPaths = allRawPaths.map((path) =>
+  //   path.filter((element) => element !== "loop")
+  // );
 
   return { allRawPaths, allGateways };
 };
@@ -135,6 +177,7 @@ export const findRawPaths = function (
 export const linkGateways = function (
   gateways: Gateway[],
   allRawPaths: string[][],
+  startElements: SimpleElement[],
   VERBOSE: Verbose = {}
 ) {
   // Weise einem join gateway das erste split gateway zu, das die Eigenschaft hat, dass jeder Pfad
@@ -163,10 +206,16 @@ export const linkGateways = function (
       splitGateway.counterpart = joinGateway.id;
       if (joinGateway.loop) {
         splitGateway.loop = true;
+        const indexToRemove = gateways.findIndex(
+          (gw) => gw.id === splitGateway.id + "_1"
+        );
+        if (indexToRemove !== -1) {
+          gateways.splice(indexToRemove, 1);
+        }
       }
       if (VERBOSE.gateways)
         console.log(
-          `Join Gateway ${joinGateway.id} und Split Gateway ${splitGateway.id} wurden verknüpft.`
+          `Join Gateway ${joinGateway.id} (${joinGateway.type}, ${joinGateway.direction}, ${joinGateway.incoming}) und Split Gateway ${splitGateway.id} (${splitGateway.type}, ${splitGateway.direction}, ${splitGateway.outgoing}) wurden verknüpft.`
         );
       break;
     }
@@ -176,16 +225,25 @@ export const linkGateways = function (
   const joinGatewayCounterparts = new Set<String>([]);
   let joinGatewayCount = 0;
   for (const joinGateway of gateways.filter((gw) => gw.direction === "join")) {
-    if (!joinGateway.counterpart) {
-      console.error(
-        `Join Gateway ${joinGateway.id} konnte mit keinem Split Gateway verknüpft werden.`
-      );
-      throw new UserInputError(
-        "Die Gateways konnten nicht miteinander verknüpft werden."
-      );
+    if (joinGateway.counterpart) {
+      joinGatewayCounterparts.add(joinGateway.counterpart);
+      joinGatewayCount++;
+    } else {
+      if (joinGateway.incoming === startElements.length) {
+        joinGateway.counterpart = "start";
+        if (VERBOSE.gateways)
+          console.log(
+            `Join Gateway ${joinGateway.id} (${joinGateway.type}, ${joinGateway.direction}, ${joinGateway.incoming}) wurde mit dem Start-Element verknüpft.`
+          );
+      } else {
+        console.error(
+          `Join Gateway ${joinGateway.id} (${joinGateway.type}, ${joinGateway.direction}, ${joinGateway.incoming}) konnte mit keinem Split Gateway verknüpft werden.`
+        );
+        throw new UserInputError(
+          "Die Gateways konnten nicht miteinander verknüpft werden."
+        );
+      }
     }
-    joinGatewayCounterparts.add(joinGateway.counterpart);
-    joinGatewayCount++;
   }
   if (joinGatewayCounterparts.size < joinGatewayCount) {
     console.error(
@@ -194,6 +252,18 @@ export const linkGateways = function (
     throw new UserInputError(
       "Die Gateways konnten nicht miteinander verknüpft werden."
     );
+  }
+
+  for (const splitGateway of gateways.filter(
+    (gw) => gw.direction === "split"
+  )) {
+    if (!splitGateway.counterpart) {
+      splitGateway.counterpart = "end";
+      if (VERBOSE.gateways)
+        console.log(
+          `Split Gateway ${splitGateway.id} (${splitGateway.type}, ${splitGateway.direction}, ${splitGateway.outgoing}) wurde mit dem End-Element verknüpft.`
+        );
+    }
   }
 };
 
@@ -222,8 +292,8 @@ const sameStartThenDifferent = function (
 /**
  * Wenn Liste a ab einem startIndex den gleichen Wert wie b aufweist und beide Listen ab da gleich enden, wird der entsprechende
  * String ausgegeben.
- * Falls sie ab dem startIndex überhaupt keinen gleichen Wert aufweisen, wird true ausgegeben.
- * Ansonsten wird false ausgegeben.
+ * Falls sie ab dem startIndex überhaupt keinen gleichen Wert aufweisen, wird "Seperate Ending" ausgegeben.
+ * Ansonsten wird null ausgegeben.
  * @param a
  * @param b
  * @param startIndex
@@ -233,20 +303,25 @@ const sameEndingIndex = function (
   b: string[],
   startIndex: number
 ): string | null {
+  let bIncludesValueOfA = false;
   for (let i = startIndex; i < a.length; i++) {
     if (b.includes(a[i])) {
+      bIncludesValueOfA = true;
       const indexB = b.indexOf(a[i]);
       if (
         a.slice(i).length === b.slice(indexB).length &&
         a.slice(i).every((val, j) => val === b.slice(indexB)[j])
       ) {
         return a[i];
-      } else {
-        return null;
       }
     }
   }
-  return "Seperate Ending";
+
+  if (bIncludesValueOfA) {
+    return null;
+  } else {
+    return "Seperate Ending";
+  }
 };
 
 /**
@@ -342,6 +417,12 @@ const mergePathsAtGateway = function (
             console.log(`Überprüfe, ob Pfad ${j + 1} gemergt werden kann.`);
           }
           const mergingPath = allRawPaths[j];
+
+          console.log(
+            "sameEndingIndex:",
+            sameEndingIndex(path, mergingPath, gatewayIndex + 1)
+          );
+
           const endingElement = sameEndingIndex(
             path,
             mergingPath,

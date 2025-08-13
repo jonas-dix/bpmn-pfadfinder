@@ -1,17 +1,13 @@
 import fs from "fs";
 import path from "path";
 import BpmnModdle from "bpmn-moddle";
-import type {
-  Gateway,
-  SimpleElement,
-  SimpleElementRegistry,
-} from "@/types/bpmn";
+import type { SimpleElement, SimpleElementRegistry } from "@/types/bpmn";
 
 const projectRoot = process.cwd();
 const diagramsDir = path.resolve(projectRoot, "public/bpmn-codes/testing");
 
 export async function loadTestDiagram(file: string): Promise<{
-  startElement: SimpleElement;
+  startElements: SimpleElement[];
   elementRegistry: SimpleElementRegistry;
 }> {
   const xml = fs.readFileSync(path.resolve(diagramsDir, file), "utf-8");
@@ -20,9 +16,6 @@ export async function loadTestDiagram(file: string): Promise<{
   const process = definitions.rootElements.find(
     (el: any) => el.$type === "bpmn:Process"
   );
-  const startElement = process.flowElements.find(
-    (el: any) => el.$type === "bpmn:StartEvent"
-  );
   const elements = process.flowElements;
 
   // Füge fehlende Properties hinzu
@@ -30,9 +23,19 @@ export async function loadTestDiagram(file: string): Promise<{
     el.type = el.$type; // simulate viewer-style .type
     el.businessObject = el; // simulate viewer-style .businessObject
   }
+
+  const simpleElements: SimpleElement[] = elements as SimpleElement[];
+
+  const startElements = simpleElements.filter(
+    (el: SimpleElement) => el.type === "bpmn:StartEvent"
+  );
+
+  console.log(startElements);
+
   const elementRegistry = {
-    getAll: () => elements,
-    get: (id: string) => elements.find((el: any) => el.id === id),
+    getAll: () => [...simpleElements],
+    get: (id: string) =>
+      simpleElements.find((el: SimpleElement) => el.id === id),
   };
-  return { startElement, elementRegistry };
+  return { startElements, elementRegistry };
 }
