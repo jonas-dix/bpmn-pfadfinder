@@ -5,7 +5,7 @@ import { computed, onMounted, ref, shallowRef } from "vue";
 // Stores, Types, Error
 import { useBpmnStore } from "@/stores/bpmn";
 // import type { Element } from "diagram-js/lib/model";
-import type { Gateway } from "@/types/bpmn";
+import type { Gateway, FilterOption } from "@/types/bpmn";
 import { UserInputError } from "@/utils/error";
 
 // Composables für Viewer, Pfad-Markierung & Navigation
@@ -25,27 +25,33 @@ import { createMergedPaths, nicePathList } from "@/utils/formatting";
 // --------------- Konfiguration ---------------
 const config = {
   defaultProgram: "Merged paths" as "Raw paths" | "Merged paths",
-  maxDepth: 25,
+  maxDepth: 100,
   verboseFlags: {
     rawPaths: false,
     gateways: false,
-    merging: true,
+    merging: false,
     mapping: false,
     overview: true,
   },
 };
 
-// --------------- Zustände für Diagramm, Analyse, UI, Store, Debug ---------------
+// --------------- Zustände ---------------
+// Store
+const bpmnStore = useBpmnStore();
+
+// Diagramm
 const diagramContainer = shallowRef<HTMLElement | null>(null);
 const selectedFileName = ref<string | null>(null);
 
+// Pfad-Analyse
 const maxDepth = ref<number>(config.maxDepth);
 const gateways = ref<Gateway[]>([]);
 const rawPaths = ref<string[][]>([]);
 const mergedPaths = ref<string[][]>([]);
 
+// Programm und Auswahl
 const program = ref<"Raw paths" | "Merged paths">(config.defaultProgram);
-const consideredPaths = computed(() => {
+const paths = computed(() => {
   if (program.value === "Raw paths") {
     return rawPaths.value;
   } else {
@@ -54,8 +60,38 @@ const consideredPaths = computed(() => {
 });
 const selectedPathIndex = ref<number | null>(null);
 
-const bpmnStore = useBpmnStore();
+// Filter-Optionen
+const selectedElementId = ref<string | null>(null);
+const filterOptions = computed(() => {
+  // Dummy-Zugriff auf bpmnXml, um sicherzustellen, dass filterOptions neu berechnet werden, wenn sich elementRegistry ändert
+  void bpmnStore.bpmnXml;
+  const options: FilterOption[] = [];
+  if (elementRegistry.value != null) {
+    elementRegistry.value.getAll().forEach((element) => {
+      if (element.type === "bpmn:Task") {
+        const name =
+          element.businessObject.name || element.businessObject.id || "Unnamed";
+        options.push({ id: element.id, label: `Task: ${name}` });
+      }
+    });
+  }
+  return options;
+});
+const filteredIndices = computed<number[]>(() => {
+  const sel = selectedElementId.value;
+  let indices = Array.from({ length: paths.value.length }, (_, i) => i);
 
+  if (sel) {
+    indices = indices.filter((i) => paths.value[i].includes(sel));
+  }
+
+  return indices;
+});
+const consideredPaths = computed<string[][]>(() =>
+  filteredIndices.value.map((i) => paths.value[i])
+);
+
+// Debugging
 const VERBOSE = config.verboseFlags;
 
 // --------------- Initialisierung von Viewer, Highlighting & Navigation ---------------
@@ -68,9 +104,21 @@ const { highlightPath } = usePathHighlighting(
   selectedPathIndex,
   VERBOSE
 );
-const { nextPath, previousPath, toggleProgram, goToPathDiagram } =
-  usePathNavigation(program, consideredPaths, selectedPathIndex, highlightPath);
+const {
+  nextPath,
+  previousPath,
+  toggleProgram,
+  goToPathDiagram,
+  reactToFilter,
+} = usePathNavigation(
+  program,
+  consideredPaths,
+  selectedPathIndex,
+  selectedElementId,
+  highlightPath
+);
 
+// =============== Lifecycle: Diagramm laden und Zustand wiederherstellen ===============
 onMounted(async () => {
   if (!diagramContainer.value) {
     console.error("DiagramContainer existiert nicht.");
@@ -96,9 +144,12 @@ onMounted(async () => {
       mergedPaths.value = bpmnStore.mergedPaths;
       program.value = bpmnStore.program;
       selectedPathIndex.value = bpmnStore.selectedPathIndex;
+      selectedElementId.value = bpmnStore.selectedElementId;
 
       // Aktuellen Pfad hervorheben
-      if (selectedPathIndex.value !== null) highlightPath();
+      if (selectedPathIndex.value !== null) {
+        highlightPath();
+      }
     }
   } catch (error) {
     console.error("Fehler beim Re-Importieren des BPMN:", error);
@@ -106,6 +157,7 @@ onMounted(async () => {
   }
 });
 
+// =============== Methoden ===============
 const loadDiagramm = async (event: Event) => {
   // Datei aus dem <input> extrahieren
   const file = (event.target as HTMLInputElement).files?.[0];
@@ -121,9 +173,10 @@ const loadDiagramm = async (event: Event) => {
 
   // Analyse- und UI-Daten zurücksetzen
   rawPaths.value = [];
-  gateways.value = [];
   mergedPaths.value = [];
+  gateways.value = [];
   program.value = "Merged paths";
+  selectedElementId.value = null;
   selectedPathIndex.value = null;
 
   // Reader initialisieren
@@ -185,7 +238,8 @@ const analyzePaths = () => {
           gw.direction,
           gw.incoming,
           gw.outgoing,
-          gw.loop,
+          gw.secondOccurrence,
+          gw.isLoopGateway,
         ])
       );
     }
@@ -206,7 +260,7 @@ const analyzePaths = () => {
             ? gw.incoming
             : 1,
           gw.counterpart,
-          gw.loop,
+          gw.isLoopGateway,
         ])
       );
     }
@@ -259,6 +313,7 @@ const analyzePaths = () => {
   bpmnStore.gateways = gateways.value;
   bpmnStore.rawPaths = rawPaths.value;
   bpmnStore.mergedPaths = mergedPaths.value;
+  bpmnStore.filterOptions = filterOptions.value;
 };
 
 function withError(fn: () => void) {
@@ -336,7 +391,7 @@ function withError(fn: () => void) {
         :key="index"
         :value="index"
       >
-        Pfad {{ index + 1 }}
+        Pfad {{ filteredIndices[index] + 1 }}
       </option>
     </select>
 
@@ -355,6 +410,19 @@ function withError(fn: () => void) {
     >
       {{ program }}
     </button>
+
+    <!-- Element-Filter -->
+    <!--       @change="withError(highlightPath)" -->
+    <select
+      v-model="selectedElementId"
+      @click="reactToFilter"
+      class="border px-2 py-1 rounded"
+    >
+      <option :value="null">Kein Filter</option>
+      <option v-for="opt in filterOptions" :key="opt.id" :value="opt.id">
+        {{ opt.label }}
+      </option>
+    </select>
   </div>
 </template>
 
@@ -368,8 +436,10 @@ function withError(fn: () => void) {
 
 <!-- 
 Loops:
-Mergen schlägt fehl, wenn gateways mehrmals auftreten:
-Idee Gateway zwei mal abspeichern für jeden loop durchlauf
+Problem: Bei großem Loop schlägt Mergen fehl.
+Versuch: Pfadelemente, die ein zweites Mal durchlaufen werden, mit ID_1 abspeichern.
+Problem: Sollen wirklich immer ein Merged Path gestrichen werden, wenn Set Path gleich ist zu einem anderen
+Problem: Manchmal muss ein Task im Loop sein, sonst wird der Loop nicht korrekt erfasst
 -->
 
 <!-- Komischerweise: Wenn ich das Diagramm auf der Website manuell lade, muss ich businessObject benutzen
@@ -377,19 +447,21 @@ Idee Gateway zwei mal abspeichern für jeden loop durchlauf
   flow.target ist nicht stabil, bei externem XML-import.
   übrigens bei moddle gibt es businessObject nicht, dort würde man currentElement.outgoing verwenden -->
 
-<!-- git add. git commit -m "..." git push -->
+<!-- git add . git commit -m "..." git push -->
 
 <!-- npx tsc --noEmit -->
 
 <!-- To Do:
-Loops behandeln
-zwei start option abgdecken
-Funktion hinzufügen: Durch eingeben eines Tasks in der Suchleiste werden Pfade gefiltert, die durch dieses Task gehen.
-Annotation zu Pfad-Diagramm mit getroffenen Entscheidungen hinzufügen
-Mit Cedric über Integration in bpmn modeler reden 
+event-based gateways
+Loops behandeln (Doppelloop, Loop verlassen mit exclusive gateway)
+newbpmn.ts verstehen: inclusive gateways einbeziehen
+Funktion hinzufügen: Durch Eingeben eines Tasks in der Suchleiste werden Pfade gefiltert, die durch dieses Task gehen.
+Mit Cedric über Integration in bpmn modeler reden
 Daniel oder Andre anschreiben, wegen Jobsuche: Schmiede, Front-End-Developer
 Schulung machen (vue, node, atlassian)-->
 
 <!-- Später:
  Problem der Reihenfolge bei inclusive Gateways
- Code in Klassen aufschreiben, sodass Algorithmen ausgewählt werden können -->
+ Code in Klassen aufschreiben, sodass Algorithmen ausgewählt werden können 
+ boundary events
+-->

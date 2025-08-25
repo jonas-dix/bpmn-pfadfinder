@@ -4,7 +4,8 @@ export type Gateway = {
   direction: string;
   incoming: number;
   outgoing: number;
-  loop: boolean;
+  isLoopGateway: boolean;
+  secondOccurrence: boolean;
   counterpart?: string;
 };
 
@@ -32,3 +33,5 @@ export type Verbose = {
   mapping?: boolean;
   overview?: boolean;
 };
+
+export type FilterOption = { id: string; label: string };

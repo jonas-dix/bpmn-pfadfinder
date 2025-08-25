@@ -7,6 +7,11 @@ import type {
   Verbose,
 } from "@/types/bpmn";
 
+/**
+ * Find all start elements in the BPMN diagram.
+ * @param elementRegistry The element registry containing all BPMN elements.
+ * @returns An array of start elements.
+ */
 export const findStartElements = function (
   elementRegistry: SimpleElementRegistry
 ): SimpleElement[] {
@@ -21,21 +26,28 @@ export const findStartElements = function (
 };
 
 /**
- * Berechnet alle Pfade, ausgehend von currentElement mit Tiefensuche (DFS).
- * Dabei werden alle Gateways als Exclusive Gateways aufgefasst.
- * @param startElement
- * @param elementRegistry
+ * Findet alle Rohpfade im BPMN-Diagramm, beginnend von den angegebenen Start-Elementen mittels Tiefensuche (DFS).
+ * Dabei werden alle Gateways als exklusive Gateways behandelt.
+ * Ein Loop wird nur einmal durchlaufen.
+ * Gleichzeitig werden alle Gateways abgespeichert.
+ * Gateways, die aufgrund eines Loops zwei Mal durchlaufen werden, werden doppelt gespeichert.
+ * Es sei denn, es sind Join-Gateways, welche den Loop beenden, dann bekommen sie die Eigenschaft isLoopGateway = true.
+ * @param elementRegistry Das Element-Registry, das alle BPMN-Elemente enthält.
+ * @param startElements Ein Array von Start-Elementen, von denen die Suche beginnt.
+ * @param maxDepth Die maximale Tiefe für die Pfadsuche.
+ * @param VERBOSE Optionen für ausführliche Protokollierung.
+ * @returns Ein Objekt mit allen Rohpfaden als Liste von Listen von Strings und den gefundenen Gateways als Liste vom Typ Gateway.
  */
 export const findRawPaths = function (
   elementRegistry: SimpleElementRegistry,
   startElements: SimpleElement[],
-  maxDepth: number = 25,
+  maxDepth: number = 100,
   VERBOSE: Verbose = {}
 ): {
   allRawPaths: string[][];
   allGateways: Gateway[];
 } {
-  let allRawPaths: string[][] = [];
+  const allRawPaths: string[][] = [];
   const allGateways: Gateway[] = [];
 
   // Funktion, die für Tiefensuche rekursiv aufgerufen wird
@@ -48,19 +60,20 @@ export const findRawPaths = function (
       return;
     }
 
-    const isFirstLoopElement =
-      currentPath.includes(currentElement.id) &&
-      new Set(currentPath).size === currentPath.length;
+    const occurences =
+      currentPath.filter((id) => id === currentElement.id).length + 1;
 
-    const occurences = currentPath.filter(
-      (id) => id === currentElement.id
-    ).length;
-    if (occurences > 1) {
+    const isFirstRepeatedElement =
+      occurences === 2 && new Set(currentPath).size === currentPath.length;
+
+    // Stoppe, falls ein Loop das zweite Mal durchlaufen werden soll.
+    if (occurences > 2) {
       return;
     }
 
     currentPath.push(currentElement.id);
 
+    // Falls das aktuelle Element ein End-Event ist, wird der aktuelle Pfad gespeichert.
     if (currentElement.type === "bpmn:EndEvent") {
       allRawPaths.push([...currentPath]);
       if (VERBOSE.rawPaths) {
@@ -100,45 +113,53 @@ export const findRawPaths = function (
         (gw) => gw.id === currentElement.id
       );
       if (existentGateway) {
-        if (isFirstLoopElement) {
-          existentGateway.loop = true;
-        } else if (
-          !allGateways.find(
-            (gw) => gw.id === currentElement.id + "_" + occurences
-          ) &&
-          occurences === 1
-        ) {
-          allGateways.push({
-            id: currentElement.id + "_" + occurences,
-            type: gatewayType,
-            direction: direction,
-            incoming: incoming.length,
-            outgoing: outgoing.length,
-            loop: false,
-          });
+        if (isFirstRepeatedElement) {
+          // Wenn das Gateway für einen Loop verantwortlich ist, aktualisiere die isLoopGateway-Eigenschaft
+          existentGateway.isLoopGateway = true;
+        } else {
+          if (
+            occurences == 2 &&
+            !allGateways.find(
+              (gw) =>
+                gw.id === currentElement.id && gw.secondOccurrence === true
+            )
+          ) {
+            // Wenn das Gateway durch einen Loop zwei Mal durchlaufen wird, aber nicht für den Loop verantwortlich ist, speichere es erneut ab mit secondOccurrence = true.
+            allGateways.push({
+              id: currentElement.id,
+              type: gatewayType,
+              direction: direction,
+              incoming: incoming.length,
+              outgoing: outgoing.length,
+              secondOccurrence: true,
+              isLoopGateway: false,
+            });
+          }
         }
       } else {
+        // Wenn das Gateway das erste Mal durchlaufen wird, speichere es ab
         allGateways.push({
           id: currentElement.id,
           type: gatewayType,
           direction: direction,
           incoming: incoming.length,
           outgoing: outgoing.length,
-          loop: isFirstLoopElement,
+          secondOccurrence: false,
+          isLoopGateway: isFirstRepeatedElement,
         });
       }
     }
 
     for (const flow of outgoing) {
       const targetId = flow.targetRef?.id;
-      if (!targetId) continue;
-      const nextElement = elementRegistry.get(targetId);
-      // if (currentPath.includes(targetId)) {
-      //   currentPath.push("loop");
-      // }
-      if (nextElement) {
-        dfs(nextElement, [...currentPath]);
+      if (!targetId) {
+        throw new Error("Ein Flow hat kein Ziel-Element.");
       }
+      const nextElement = elementRegistry.get(targetId);
+      if (!nextElement) {
+        throw new Error("Ein Flow hat kein Ziel-Element.");
+      }
+      dfs(nextElement, [...currentPath]);
     }
   };
 
@@ -150,29 +171,21 @@ export const findRawPaths = function (
     throw new Error("Die Funktion findPaths hat einen leeren Output ergeben.");
   }
 
-  // // Im Falle eines Loops werden Pfade gelöscht, welche mehrmals durch dasselbe Loop laufen
-  // const uniquePaths = new Set<string>();
-  // allRawPaths = allRawPaths.filter((path) => {
-  //   const pathSetString = JSON.stringify([...new Set(path)].sort());
-  //   if (uniquePaths.has(pathSetString)) {
-  //     return false;
-  //   }
-  //   uniquePaths.add(pathSetString);
-  //   return true;
-  // });
-
-  // // Entferne "loop"
-  // allRawPaths = allRawPaths.map((path) =>
-  //   path.filter((element) => element !== "loop")
-  // );
-
   return { allRawPaths, allGateways };
 };
 
 /**
- * Ergänzt die Gateways mit der Eigenschaft counterpart, welche die ID des zugehörigen Split/Join-Gateway angibt.
- * @param gateways
- * @param allRawPaths
+ * Verknüpft Join- und Split-Gateways miteinander und löscht doppelte Split-Gateways, welche Loops einleiten.
+ * Für jedes Join-Gateway wird das passende Split-Gateway gesucht, sodass auf jedem Pfad,
+ * der das Join-Gateway durchläuft, zuvor das Split-Gateway passiert wurde.
+ * Bei geloopten Join-Gateways ist die Reihenfolge egal.
+ * Falls ein Join-Gateway keinem Split-Gateway zugeordnet werden kann, wird geprüft,
+ * ob es mit mehreren Start-Elementen verknüpft werden kann.
+ * Split-Gateways ohne Gegenstück werden mit dem End-Element verknüpft.
+ * @param gateways Liste aller Gateways
+ * @param allRawPaths Alle Rohpfade
+ * @param startElements Ein Array von Start-Elementen, von denen die Suche beginnt.
+ * @param VERBOSE Optionen für ausführliche Protokollierung
  */
 export const linkGateways = function (
   gateways: Gateway[],
@@ -182,7 +195,7 @@ export const linkGateways = function (
 ) {
   // Weise einem join gateway das erste split gateway zu, das die Eigenschaft hat, dass jeder Pfad
   // der das join gateway durchläuft, vorher das split gateway durchlaufen ist, es sei denn das joinGateway
-  // wird geloopt, in dem Fall, ist die Reihenfolge egal
+  // leitet den Loop ein, in dem Fall, ist die Reihenfolge egal
   for (const joinGateway of gateways
     .filter((gw) => gw.direction === "join")
     .slice()
@@ -195,8 +208,9 @@ export const linkGateways = function (
         if (path.includes(joinGateway.id)) {
           if (
             !path.includes(splitGateway.id) ||
-            (!joinGateway.loop &&
-              path.indexOf(splitGateway.id) > path.indexOf(joinGateway.id))
+            (!joinGateway.isLoopGateway &&
+              path.indexOf(splitGateway.id) > path.indexOf(joinGateway.id)) ||
+            joinGateway.secondOccurrence === !splitGateway.secondOccurrence
           ) {
             continue outer;
           }
@@ -204,10 +218,13 @@ export const linkGateways = function (
       }
       joinGateway.counterpart = splitGateway.id;
       splitGateway.counterpart = joinGateway.id;
-      if (joinGateway.loop) {
-        splitGateway.loop = true;
-        const indexToRemove = gateways.findIndex(
-          (gw) => gw.id === splitGateway.id + "_1"
+
+      // Wenn das Join-Gateway den Loop beendet, muss das Split-Gateway ebenfalls als isLoopGateway markiert werden.
+      // Die Gateways dürfen dann nur einmal gelistet sein, da sie für den Loop verantwortlich sind.
+      if (joinGateway.isLoopGateway) {
+        splitGateway.isLoopGateway = true;
+        let indexToRemove = gateways.findIndex(
+          (gw) => gw.id === splitGateway.id && gw.secondOccurrence === true
         );
         if (indexToRemove !== -1) {
           gateways.splice(indexToRemove, 1);
@@ -215,7 +232,7 @@ export const linkGateways = function (
       }
       if (VERBOSE.gateways)
         console.log(
-          `Join Gateway ${joinGateway.id} (${joinGateway.type}, ${joinGateway.direction}, ${joinGateway.incoming}) und Split Gateway ${splitGateway.id} (${splitGateway.type}, ${splitGateway.direction}, ${splitGateway.outgoing}) wurden verknüpft.`
+          `Join Gateway ${joinGateway.id} (${joinGateway.type}, ${joinGateway.direction}, ${joinGateway.incoming}, ${joinGateway.secondOccurrence}) und Split Gateway ${splitGateway.id} (${splitGateway.type}, ${splitGateway.direction}, ${splitGateway.outgoing}, ${splitGateway.secondOccurrence}) wurden verknüpft.`
         );
       break;
     }
@@ -226,8 +243,12 @@ export const linkGateways = function (
   let joinGatewayCount = 0;
   for (const joinGateway of gateways.filter((gw) => gw.direction === "join")) {
     if (joinGateway.counterpart) {
-      joinGatewayCounterparts.add(joinGateway.counterpart);
       joinGatewayCount++;
+      if (joinGateway.secondOccurrence) {
+        joinGatewayCounterparts.add(`${joinGateway.counterpart}_1`);
+      } else {
+        joinGatewayCounterparts.add(joinGateway.counterpart);
+      }
     } else {
       if (joinGateway.incoming === startElements.length) {
         joinGateway.counterpart = "start";
@@ -237,7 +258,7 @@ export const linkGateways = function (
           );
       } else {
         console.error(
-          `Join Gateway ${joinGateway.id} (${joinGateway.type}, ${joinGateway.direction}, ${joinGateway.incoming}) konnte mit keinem Split Gateway verknüpft werden.`
+          `Join Gateway ${joinGateway.id} (${joinGateway.type}, ${joinGateway.direction}, ${joinGateway.incoming}) konnte mit keinem Split Gateway oder mehreren Start-Elementen verknüpft werden.`
         );
         throw new UserInputError(
           "Die Gateways konnten nicht miteinander verknüpft werden."
@@ -245,6 +266,8 @@ export const linkGateways = function (
       }
     }
   }
+  console.log(joinGatewayCounterparts);
+  console.log(joinGatewayCount);
   if (joinGatewayCounterparts.size < joinGatewayCount) {
     console.error(
       "Zwei Join-Gateways wurde dasselbe Split-Gateway zugeordnet."
@@ -417,11 +440,6 @@ const mergePathsAtGateway = function (
             console.log(`Überprüfe, ob Pfad ${j + 1} gemergt werden kann.`);
           }
           const mergingPath = allRawPaths[j];
-
-          console.log(
-            "sameEndingIndex:",
-            sameEndingIndex(path, mergingPath, gatewayIndex + 1)
-          );
 
           const endingElement = sameEndingIndex(
             path,

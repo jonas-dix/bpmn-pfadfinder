@@ -65,6 +65,11 @@
     "numberMergedPaths": 1
   },
   {
+    "file": "2parallel-2parallelNested-stop-stop.bpmn",
+    "numberRawPaths": 6,
+    "numberMergedPaths": 3
+  },
+  {
     "file": "2parallel-exclusive-2parallel-stop.bpmn",
     "numberRawPaths": 5,
     "numberMergedPaths": 2
@@ -176,6 +181,11 @@
   {
     "file": "loopDiagram-loop-2parallelNested-loop.bpmn",
     "numberRawPaths": 6,
+    "numberMergedPaths": 2
+  },
+  {
+    "file": "loopDiagram-taskLoop.bpmn",
+    "numberRawPaths": 2,
     "numberMergedPaths": 2
   }
 ]

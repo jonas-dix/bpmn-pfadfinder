@@ -6,6 +6,7 @@ export function usePathNavigation(
   program: Ref<"Raw paths" | "Merged paths">,
   consideredPaths: Ref<string[][]>,
   selectedPathIndex: Ref<number | null>,
+  selectedElementId: Ref<string | null>,
   highlightPath: () => void
 ) {
   const bpmnStore = useBpmnStore();
@@ -73,11 +74,30 @@ export function usePathNavigation(
 
     bpmnStore.program = program.value;
     bpmnStore.selectedPathIndex = selectedPathIndex.value;
+    bpmnStore.selectedElementId = selectedElementId.value;
+    bpmnStore.selectedPath = consideredPaths.value[selectedPathIndex.value];
 
     router.push({
       name: "pathdiagram",
     });
   };
 
-  return { nextPath, previousPath, toggleProgram, goToPathDiagram };
+  const reactToFilter = () => {
+    if (consideredPaths.value.length === 0) {
+      throw new Error("Es gibt keine Pfade zur Auswahl.");
+    }
+    if (selectedPathIndex.value === null) {
+      return;
+    }
+    selectedPathIndex.value = 0;
+    highlightPath();
+  };
+
+  return {
+    nextPath,
+    previousPath,
+    toggleProgram,
+    goToPathDiagram,
+    reactToFilter,
+  };
 }
